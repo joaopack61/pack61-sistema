@@ -126,19 +126,25 @@ export default function AdminDashboard() {
 
       {/* ── KPIs de Tubos ────────────────────────────────────────── */}
       <div>
-        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tubos</h2>
-        <div className="grid grid-cols-3 gap-2">
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tubos Recolhidos — Este Mês</h2>
+        <div className="grid grid-cols-2 gap-2">
           <div className="card p-4">
-            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Recolhidos (mês)</div>
-            <div className="text-2xl font-black text-blue-600">{fmt(data.tubes_month)}</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">P5 recolhidos</div>
+            <div className="text-2xl font-black text-blue-600">{fmt(data.tubes_p5_month)}</div>
+            <div className="text-xs text-slate-400 mt-1">Semana: {fmt(data.tubes_week)} total</div>
           </div>
           <div className="card p-4">
-            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Recolhidos (semana)</div>
-            <div className="text-2xl font-black text-blue-500">{fmt(data.tubes_week)}</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">P10 recolhidos</div>
+            <div className="text-2xl font-black text-blue-600">{fmt(data.tubes_p10_month)}</div>
+            <div className="text-xs text-slate-400 mt-1">Total mês: {fmt(data.tubes_month)}</div>
           </div>
           <div className="card p-4">
-            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Pendências abertas</div>
-            <div className={`text-2xl font-black ${data.tubes_pending_open > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(data.tubes_pending_open)}</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">P5 pendentes</div>
+            <div className={`text-2xl font-black ${data.tubes_pending_p5_open > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(data.tubes_pending_p5_open)}</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">P10 pendentes</div>
+            <div className={`text-2xl font-black ${data.tubes_pending_p10_open > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(data.tubes_pending_p10_open)}</div>
           </div>
         </div>
         {data.tubes_pending_open > 0 && (
@@ -146,7 +152,7 @@ export default function AdminDashboard() {
             <span className="text-red-500 text-xl flex-shrink-0">⚠️</span>
             <div>
               <p className="text-sm font-bold text-red-700">{data.tubes_pending_open} entrega(s) com tubo pendente</p>
-              <p className="text-xs text-red-500">Ver módulo de logística → Tubos</p>
+              <p className="text-xs text-red-500">Ver Logística → Tubos para detalhe</p>
             </div>
           </div>
         )}

@@ -25,6 +25,10 @@ router.get('/', (req, res) => {
     const deliveries_without_canhoto = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE status='entregue' AND canhoto_photo IS NULL AND (SELECT COUNT(*) FROM canhoto_photos cp WHERE cp.delivery_id=deliveries.id)=0 AND DATE(updated_at)>=?`).get(monthStart).c;
     const tubes_month = db.prepare(`SELECT COALESCE(SUM(tubes_quantity),0) as t FROM deliveries WHERE tubes_had=1 AND DATE(updated_at)>=?`).get(monthStart).t;
     const tubes_week = db.prepare(`SELECT COALESCE(SUM(tubes_quantity),0) as t FROM deliveries WHERE tubes_had=1 AND DATE(updated_at)>=?`).get(weekStart).t;
+    const tubes_p5_month  = db.prepare(`SELECT COALESCE(SUM(tubes_qty_p5),0) as t FROM deliveries WHERE tubes_had=1 AND DATE(updated_at)>=?`).get(monthStart).t;
+    const tubes_p10_month = db.prepare(`SELECT COALESCE(SUM(tubes_qty_p10),0) as t FROM deliveries WHERE tubes_had=1 AND DATE(updated_at)>=?`).get(monthStart).t;
+    const tubes_pending_p5_open  = db.prepare(`SELECT COALESCE(SUM(tubes_pending_p5),0) as t FROM deliveries WHERE tubes_pending=1`).get().t;
+    const tubes_pending_p10_open = db.prepare(`SELECT COALESCE(SUM(tubes_pending_p10),0) as t FROM deliveries WHERE tubes_pending=1`).get().t;
     const tubes_pending_open = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE tubes_pending=1`).get().c;
     const low_stock = db.prepare(`SELECT COUNT(*) as c FROM skus s LEFT JOIN stock st ON s.id=st.sku_id WHERE s.active=1 AND st.quantity_available<=s.min_stock`).get().c;
     const total_clients = db.prepare(`SELECT COUNT(*) as c FROM clients WHERE active=1`).get().c;
@@ -42,7 +46,7 @@ router.get('/', (req, res) => {
     const ticket_medio = orders_month_total.c > 0 ? Math.round(orders_month_total.v / orders_month_total.c) : 0;
     const revenue_by_day = db.prepare(`SELECT DATE(created_at) as day, COALESCE(SUM(total_value),0) as total FROM orders WHERE DATE(created_at)>=? AND status!='cancelado' GROUP BY DATE(created_at) ORDER BY day ASC`).all(monthStart);
 
-    return res.json({ visits_today, visits_week, visits_month, orders_pending, orders_production, orders_ready, orders_delivered, deliveries_with_canhoto, deliveries_without_canhoto, tubes_month, tubes_week, tubes_pending_open, low_stock, total_clients, top_sellers, order_status_chart, visits_by_seller, loss_reasons, revenue_month, revenue_pending, orders_paid, ticket_medio, revenue_by_day, orders_month: orders_month_total.c });
+    return res.json({ visits_today, visits_week, visits_month, orders_pending, orders_production, orders_ready, orders_delivered, deliveries_with_canhoto, deliveries_without_canhoto, tubes_month, tubes_week, tubes_p5_month, tubes_p10_month, tubes_pending_open, tubes_pending_p5_open, tubes_pending_p10_open, low_stock, total_clients, top_sellers, order_status_chart, visits_by_seller, loss_reasons, revenue_month, revenue_pending, orders_paid, ticket_medio, revenue_by_day, orders_month: orders_month_total.c });
   }
 
   if (role === 'vendedor') {

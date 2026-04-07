@@ -204,8 +204,9 @@ router.put('/:id/status',
     const {
       status, observations, occurrence, no_delivery_reason,
       tubes_collected, tubes_quantity,
-      tubes_had, tubes_pending, tubes_pending_qty, tubes_obs,
-      no_proof_reason,
+      tubes_had, tubes_qty_p5, tubes_qty_p10,
+      tubes_pending, tubes_pending_p5, tubes_pending_p10,
+      tubes_obs, no_proof_reason,
     } = req.body;
 
     const VALID_STATUS = ['pendente','saiu_entrega','chegou_cliente','entregue','ocorrencia','nao_entregue'];
@@ -219,18 +220,30 @@ router.put('/:id/status',
     // Novos canhotos enviados agora
     const newPhotos = req.files?.canhoto_photos || [];
 
-    // Validação: entrega concluída exige comprovante OU justificativa
+    // ── Validação de fechamento (só para status 'entregue') ───────────────────
     if (status === 'entregue') {
-      const hasLegacy   = !!d.canhoto_photo;
-      const hasNewInDb  = db.prepare('SELECT COUNT(*) as c FROM canhoto_photos WHERE delivery_id=?').get(d.id).c > 0;
-      const hasSending  = newPhotos.length > 0;
-      const hasProof    = hasLegacy || hasNewInDb || hasSending;
-      const justificativa = (no_proof_reason || '').trim();
-      if (!hasProof && !justificativa) {
-        return res.status(400).json({
-          error: 'Comprovante obrigatorio',
-          message: 'Anexe o canhoto assinado ou informe uma justificativa para concluir a entrega.',
-        });
+      const errors = [];
+
+      // 1. Tubos: obrigatório informar se houve ou não coleta
+      if (tubes_had === undefined || tubes_had === null || tubes_had === '') {
+        errors.push('Informe se houve recolhimento de tubos antes de concluir.');
+      }
+
+      // 2. Tubos: obrigatório informar se ficou pendência
+      if (tubes_pending === undefined || tubes_pending === null || tubes_pending === '') {
+        errors.push('Informe se ficou pendência de tubo antes de concluir.');
+      }
+
+      // 3. Canhoto obrigatório (foto física, sem exceção)
+      const hasLegacy  = !!d.canhoto_photo;
+      const hasInDb    = db.prepare('SELECT COUNT(*) as c FROM canhoto_photos WHERE delivery_id=?').get(d.id).c > 0;
+      const hasSending = newPhotos.length > 0;
+      if (!hasLegacy && !hasInDb && !hasSending) {
+        errors.push('Anexe a foto do canhoto assinado para concluir a entrega.');
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({ error: 'Dados incompletos', messages: errors });
       }
     }
 
@@ -245,22 +258,28 @@ router.put('/:id/status',
       UPDATE deliveries SET
         status=?, observations=?, occurrence=?, no_delivery_reason=?,
         tubes_collected=?, tubes_quantity=?,
-        tubes_had=?, tubes_pending=?, tubes_pending_qty=?, tubes_obs=?,
-        no_proof_reason=?,
+        tubes_had=?, tubes_qty_p5=?, tubes_qty_p10=?,
+        tubes_pending=?, tubes_pending_p5=?, tubes_pending_p10=?,
+        tubes_pending_qty=?,
+        tubes_obs=?, no_proof_reason=?,
         departure_time=?, arrival_time=?, completion_time=?,
         delivery_photo=?, updated_at=CURRENT_TIMESTAMP
       WHERE id=?
     `).run(
       status,
-      observations   || d.observations,
-      occurrence     || d.occurrence,
-      no_delivery_reason || d.no_delivery_reason,
+      observations        || d.observations,
+      occurrence          || d.occurrence,
+      no_delivery_reason  || d.no_delivery_reason,
       tubes_collected !== undefined ? parseInt(tubes_collected) : d.tubes_collected,
-      tubes_quantity  ? parseInt(tubes_quantity)  : d.tubes_quantity,
-      tubes_had       !== undefined ? parseInt(tubes_had)       : d.tubes_had,
-      tubes_pending   !== undefined ? parseInt(tubes_pending)   : d.tubes_pending,
-      tubes_pending_qty ? parseInt(tubes_pending_qty) : d.tubes_pending_qty,
-      tubes_obs       || d.tubes_obs,
+      tubes_quantity  ? parseInt(tubes_quantity) : d.tubes_quantity,
+      tubes_had       !== undefined && tubes_had !== '' ? parseInt(tubes_had)  : d.tubes_had,
+      tubes_qty_p5    ? parseInt(tubes_qty_p5)    : (d.tubes_qty_p5 || 0),
+      tubes_qty_p10   ? parseInt(tubes_qty_p10)   : (d.tubes_qty_p10 || 0),
+      tubes_pending   !== undefined && tubes_pending !== '' ? parseInt(tubes_pending) : d.tubes_pending,
+      tubes_pending_p5  ? parseInt(tubes_pending_p5)  : (d.tubes_pending_p5 || 0),
+      tubes_pending_p10 ? parseInt(tubes_pending_p10) : (d.tubes_pending_p10 || 0),
+      (parseInt(tubes_pending_p5 || 0) + parseInt(tubes_pending_p10 || 0)) || d.tubes_pending_qty,
+      tubes_obs        || d.tubes_obs,
       no_proof_reason !== undefined ? no_proof_reason : d.no_proof_reason,
       departure, arrival, completion,
       dphoto, req.params.id,
