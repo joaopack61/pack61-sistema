@@ -128,8 +128,13 @@ router.post('/', authorize('admin', 'vendedor'), (req, res) => {
     return orderId;
   });
 
-  const orderId = createOrder();
-  res.status(201).json({ id: orderId });
+  try {
+    const orderId = createOrder();
+    res.status(201).json({ id: orderId });
+  } catch(e) {
+    console.error('[orders POST] Erro:', e && e.message, e);
+    res.status(500).json({ error: e?.message || 'Erro ao criar pedido' });
+  }
 });
 
 // ─── PUT /orders/:id/status ───────────────────────────────────────────────────

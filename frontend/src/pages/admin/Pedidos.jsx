@@ -31,6 +31,15 @@ function FlowStepper({ current }) {
   )
 }
 
+const emptyNewOrder = {
+  client_id: '',
+  seller_id: '',
+  delivery_date: '',
+  payment_terms: '',
+  notes: '',
+  items: [{ sku_id: '', quantity: 1, unit_price: '' }],
+}
+
 export default function AdminPedidos() {
   const [orders, setOrders] = useState([])
   const [filter, setFilter] = useState('')
@@ -39,6 +48,15 @@ export default function AdminPedidos() {
   const [changing, setChanging] = useState(false)
   const [search, setSearch] = useState('')
 
+  // Novo pedido
+  const [showNew, setShowNew] = useState(false)
+  const [newOrder, setNewOrder] = useState(emptyNewOrder)
+  const [clients, setClients] = useState([])
+  const [sellers, setSellers] = useState([])
+  const [skus, setSkus] = useState([])
+  const [newLoading, setNewLoading] = useState(false)
+  const [newError, setNewError] = useState('')
+
   const load = (status = '') => {
     setLoading(true)
     api.get('/orders', { params: status ? { status } : {} })
@@ -46,6 +64,22 @@ export default function AdminPedidos() {
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+
+  const openNewModal = async () => {
+    setNewOrder(emptyNewOrder)
+    setNewError('')
+    setShowNew(true)
+    try {
+      const [cliRes, usersRes, skusRes] = await Promise.all([
+        api.get('/clients'),
+        api.get('/users'),
+        api.get('/stock/skus'),
+      ])
+      setClients(cliRes.data)
+      setSellers(usersRes.data.filter(u => u.role === 'vendedor' && u.active))
+      setSkus(skusRes.data)
+    } catch {}
+  }
 
   const handleStatus = async (orderId, status) => {
     setChanging(true)
@@ -70,6 +104,50 @@ export default function AdminPedidos() {
     setSelected(r.data)
   }
 
+  // Novo pedido — manipulação de itens
+  const setItem = (i, field, val) => {
+    setNewOrder(prev => {
+      const items = [...prev.items]
+      items[i] = { ...items[i], [field]: val }
+      return { ...prev, items }
+    })
+  }
+  const addItem = () => setNewOrder(prev => ({ ...prev, items: [...prev.items, { sku_id: '', quantity: 1, unit_price: '' }] }))
+  const removeItem = (i) => setNewOrder(prev => ({ ...prev, items: prev.items.filter((_, idx) => idx !== i) }))
+
+  const orderTotal = newOrder.items.reduce((acc, it) => {
+    const qty = parseFloat(it.quantity) || 0
+    const price = parseFloat(it.unit_price) || 0
+    return acc + qty * price
+  }, 0)
+
+  const handleCreateOrder = async () => {
+    if (!newOrder.client_id) { setNewError('Selecione um cliente'); return }
+    if (!newOrder.items.length || !newOrder.items[0].sku_id) { setNewError('Adicione pelo menos 1 item'); return }
+    setNewLoading(true); setNewError('')
+    try {
+      const payload = {
+        client_id: parseInt(newOrder.client_id),
+        seller_id: newOrder.seller_id ? parseInt(newOrder.seller_id) : undefined,
+        delivery_date: newOrder.delivery_date || undefined,
+        payment_terms: newOrder.payment_terms || undefined,
+        notes: newOrder.notes || undefined,
+        items: newOrder.items
+          .filter(it => it.sku_id)
+          .map(it => ({
+            sku_id: parseInt(it.sku_id),
+            quantity: parseFloat(it.quantity) || 1,
+            unit_price: parseFloat(it.unit_price) || 0,
+          })),
+      }
+      await api.post('/orders', payload)
+      setShowNew(false)
+      await load(filter)
+    } catch (e) {
+      setNewError(e.response?.data?.error || 'Erro ao criar pedido')
+    } finally { setNewLoading(false) }
+  }
+
   const displayed = orders.filter(o =>
     !search || o.client_name?.toLowerCase().includes(search.toLowerCase()) ||
     String(o.id).includes(search) ||
@@ -78,26 +156,34 @@ export default function AdminPedidos() {
 
   return (
     <div className="space-y-4">
-      {/* Filtros de status */}
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+      {/* Filtros de status + Novo Pedido */}
+      <div className="flex gap-2 items-center">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide flex-1">
+          <button
+            onClick={() => { setFilter(''); load('') }}
+            className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-colors ${!filter ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
+          >
+            Todos ({orders.length})
+          </button>
+          {STATUS_OPTIONS.map(s => {
+            const count = orders.filter(o => o.status === s).length
+            return (
+              <button
+                key={s}
+                onClick={() => { setFilter(s); load(s) }}
+                className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-colors ${filter === s ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
+              >
+                {STATUS_LABELS[s]} {count > 0 ? `(${count})` : ''}
+              </button>
+            )
+          })}
+        </div>
         <button
-          onClick={() => { setFilter(''); load('') }}
-          className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-colors ${!filter ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
+          onClick={openNewModal}
+          className="btn-primary text-xs flex-shrink-0 whitespace-nowrap"
         >
-          Todos ({orders.length})
+          + Novo Pedido
         </button>
-        {STATUS_OPTIONS.map(s => {
-          const count = orders.filter(o => o.status === s).length
-          return (
-            <button
-              key={s}
-              onClick={() => { setFilter(s); load(s) }}
-              className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-colors ${filter === s ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
-            >
-              {STATUS_LABELS[s]} {count > 0 ? `(${count})` : ''}
-            </button>
-          )
-        })}
       </div>
 
       {/* Busca */}
@@ -145,7 +231,6 @@ export default function AdminPedidos() {
                       {o.items.length > 2 && <span className="text-slate-400">+{o.items.length - 2}</span>}
                     </div>
                   )}
-                  {/* Barra de progresso do fluxo */}
                   {!['cancelado', 'entregue'].includes(o.status) && <FlowStepper current={o.status} />}
                 </div>
                 <div className="flex-shrink-0 text-right">
@@ -167,7 +252,6 @@ export default function AdminPedidos() {
       <Modal open={!!selected} onClose={() => setSelected(null)} title={`Pedido #${selected?.id}`}>
         {selected && (
           <div className="space-y-4">
-            {/* Info do cliente */}
             <div className="bg-slate-50 rounded-xl p-4 space-y-1 text-sm">
               <div className="font-bold text-slate-800 text-base">{selected.client_name}</div>
               {selected.city && <div className="text-xs text-slate-500">{selected.address ? `${selected.address}, ` : ''}{selected.city}</div>}
@@ -181,7 +265,6 @@ export default function AdminPedidos() {
               </div>
             </div>
 
-            {/* Itens */}
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase mb-2">Itens do Pedido</p>
               <div className="space-y-1 bg-slate-50 rounded-xl p-3">
@@ -205,7 +288,6 @@ export default function AdminPedidos() {
               <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 italic">"{selected.notes}"</div>
             )}
 
-            {/* Status do pedido */}
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase mb-2">Status do Pedido</p>
               <div className="grid grid-cols-3 gap-1.5">
@@ -226,7 +308,6 @@ export default function AdminPedidos() {
               </div>
             </div>
 
-            {/* Status financeiro */}
             <div>
               <p className="text-xs font-bold text-slate-500 uppercase mb-2">Status Financeiro</p>
               <div className="flex flex-wrap gap-1.5">
@@ -248,6 +329,97 @@ export default function AdminPedidos() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Modal Novo Pedido */}
+      <Modal open={showNew} onClose={() => setShowNew(false)} title="Novo Pedido">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Cliente *</label>
+            <select value={newOrder.client_id} onChange={e => setNewOrder(p => ({...p, client_id: e.target.value}))} className="input">
+              <option value="">Selecione o cliente...</option>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.name} — {c.city}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="label">Vendedor responsável</label>
+            <select value={newOrder.seller_id} onChange={e => setNewOrder(p => ({...p, seller_id: e.target.value}))} className="input">
+              <option value="">Selecione o vendedor...</option>
+              {sellers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Data de entrega</label>
+              <input type="date" value={newOrder.delivery_date} onChange={e => setNewOrder(p => ({...p, delivery_date: e.target.value}))} className="input" />
+            </div>
+            <div>
+              <label className="label">Cond. pagamento</label>
+              <input type="text" value={newOrder.payment_terms} onChange={e => setNewOrder(p => ({...p, payment_terms: e.target.value}))} className="input" placeholder="Ex: 30/60 dias" />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Observações</label>
+            <textarea value={newOrder.notes} onChange={e => setNewOrder(p => ({...p, notes: e.target.value}))} className="input" rows={2} placeholder="Opcional..." />
+          </div>
+
+          {/* Itens */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-slate-500 uppercase">Itens do Pedido</p>
+              <button type="button" onClick={addItem} className="text-xs text-brand-600 font-bold hover:text-brand-700">+ Adicionar item</button>
+            </div>
+            <div className="space-y-2">
+              {newOrder.items.map((item, i) => (
+                <div key={i} className="bg-slate-50 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-500">Item {i + 1}</span>
+                    {newOrder.items.length > 1 && (
+                      <button type="button" onClick={() => removeItem(i)} className="text-xs text-red-500 font-bold">Remover</button>
+                    )}
+                  </div>
+                  <select value={item.sku_id} onChange={e => setItem(i, 'sku_id', e.target.value)} className="input text-sm">
+                    <option value="">Selecione o produto...</option>
+                    {skus.map(s => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+                  </select>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="label">Qtd</label>
+                      <input type="number" min="1" value={item.quantity} onChange={e => setItem(i, 'quantity', e.target.value)} className="input" />
+                    </div>
+                    <div>
+                      <label className="label">Preço unit.</label>
+                      <input type="number" min="0" step="0.01" value={item.unit_price} onChange={e => setItem(i, 'unit_price', e.target.value)} className="input" placeholder="0,00" />
+                    </div>
+                    <div>
+                      <label className="label">Total</label>
+                      <div className="input bg-slate-100 text-slate-600 font-semibold text-sm flex items-center">
+                        R$ {((parseFloat(item.quantity) || 0) * (parseFloat(item.unit_price) || 0)).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 text-right text-sm font-black text-brand-600">
+              Total do pedido: R$ {orderTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </div>
+          </div>
+
+          {newError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-3 py-2">{newError}</div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => setShowNew(false)} className="btn-secondary flex-1">Cancelar</button>
+            <button onClick={handleCreateOrder} disabled={newLoading} className="btn-primary flex-1">
+              {newLoading ? 'Salvando...' : '💾 Criar Pedido'}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

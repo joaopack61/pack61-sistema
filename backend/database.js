@@ -55,7 +55,9 @@ class Statement {
   _bind(args) {
     // Achata 1 nível (permite passar array ou valores individuais)
     const flat = Array.isArray(args[0]) && args.length === 1 ? args[0] : args;
-    return flat.length > 0 ? flat : null;
+    // sql.js não aceita undefined — converter para null
+    const safe = flat.map(v => (v === undefined ? null : v));
+    return safe.length > 0 ? safe : null;
   }
 
   /** Retorna primeira linha ou undefined */
@@ -593,6 +595,8 @@ function _runMigrations() {
     ['tubes_pending_p10',     'INTEGER DEFAULT 0'],
     ['tubes_obs',             'TEXT'],
     ['no_proof_reason',       'TEXT'],
+    ['acted_by_id',           'INTEGER'],
+    ['acted_by_role',         'TEXT'],
   ];
 
   let added = 0;

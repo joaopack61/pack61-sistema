@@ -48,7 +48,10 @@ router.get('/reports/tubes', authorize('admin'), (req, res) => {
            COUNT(CASE WHEN d.tubes_had=1 THEN 1 END)     as routes_with_tubes,
            COALESCE(SUM(d.tubes_quantity),0)              as total_collected,
            COALESCE(SUM(d.tubes_pending_qty),0)           as total_pending,
-           COUNT(CASE WHEN d.tubes_pending=1 THEN 1 END)  as deliveries_with_pending
+           COUNT(CASE WHEN d.tubes_pending=1 THEN 1 END)  as deliveries_with_pending,
+           COALESCE(SUM(d.tubes_p5),0)                    as total_p5,
+           COALESCE(SUM(d.tubes_p10),0)                   as total_p10,
+           COALESCE(SUM(d.tubes_p5)*0.50 + SUM(d.tubes_p10)*1.00, 0) as total_value
     FROM deliveries d
     JOIN users u ON d.driver_id=u.id
     WHERE d.tubes_had=1
@@ -59,7 +62,10 @@ router.get('/reports/tubes', authorize('admin'), (req, res) => {
     SELECT c.name as client_name, c.city,
            COALESCE(SUM(d.tubes_quantity),0)    as total_collected,
            COALESCE(SUM(d.tubes_pending_qty),0)  as total_pending,
-           COUNT(CASE WHEN d.tubes_pending=1 THEN 1 END) as open_pending
+           COUNT(CASE WHEN d.tubes_pending=1 THEN 1 END) as open_pending,
+           COALESCE(SUM(d.tubes_p5),0)           as total_p5,
+           COALESCE(SUM(d.tubes_p10),0)          as total_p10,
+           COALESCE(SUM(d.tubes_p5)*0.50 + SUM(d.tubes_p10)*1.00, 0) as total_value
     FROM deliveries d
     JOIN orders o ON d.order_id=o.id
     JOIN clients c ON o.client_id=c.id
@@ -142,6 +148,9 @@ router.get('/', (req, res) => {
   const deliveries = db.prepare(q).all(...p);
   deliveries.forEach(d => {
     d.items = db.prepare(`SELECT oi.*, s.name as sku_name, s.unit FROM order_items oi LEFT JOIN skus s ON oi.sku_id=s.id WHERE oi.order_id=?`).all(d.order_id);
+    d.tubes_value_p5    = (d.tubes_p5  || 0) * 0.50;
+    d.tubes_value_p10   = (d.tubes_p10 || 0) * 1.00;
+    d.tubes_value_total = d.tubes_value_p5 + d.tubes_value_p10;
   });
   res.json(deliveries);
 });
@@ -171,6 +180,9 @@ router.get('/:id', (req, res) => {
   if (req.user.role === 'motorista' && d.driver_id !== req.user.id) return res.status(403).json({ error: 'Acesso negado' });
   d.items = db.prepare(`SELECT oi.*, s.name as sku_name, s.unit FROM order_items oi LEFT JOIN skus s ON oi.sku_id=s.id WHERE oi.order_id=?`).all(d.order_id);
   d.canhoto_photos = getCanhotos(db, d.id);
+  d.tubes_value_p5    = (d.tubes_p5  || 0) * 0.50;
+  d.tubes_value_p10   = (d.tubes_p10 || 0) * 1.00;
+  d.tubes_value_total = d.tubes_value_p5 + d.tubes_value_p10;
   res.json(d);
 });
 
@@ -221,6 +233,10 @@ router.put('/:id/status',
     if (!d) return res.status(404).json({ error: 'Entrega nao encontrada' });
     if (req.user.role === 'motorista' && d.driver_id !== req.user.id) return res.status(403).json({ error: 'Acesso negado' });
 
+    // Admin pode reatribuir motorista
+    const newDriverId = req.user.role === 'admin' && req.body.driver_id
+      ? parseInt(req.body.driver_id) : d.driver_id;
+
     // Novos canhotos enviados agora
     const newPhotos = req.files?.canhoto_photos || [];
 
@@ -268,7 +284,9 @@ router.put('/:id/status',
         tubes_pending_qty=?,
         tubes_obs=?, no_proof_reason=?,
         departure_time=?, arrival_time=?, completion_time=?,
-        delivery_photo=?, updated_at=CURRENT_TIMESTAMP
+        delivery_photo=?, driver_id=?,
+        acted_by_id=?, acted_by_role=?,
+        updated_at=CURRENT_TIMESTAMP
       WHERE id=?
     `).run(
       status,
@@ -289,7 +307,9 @@ router.put('/:id/status',
       tubes_obs        || d.tubes_obs,
       no_proof_reason !== undefined ? no_proof_reason : d.no_proof_reason,
       departure, arrival, completion,
-      dphoto, req.params.id,
+      dphoto, newDriverId,
+      req.user.id, req.user.role,
+      req.params.id,
     );
 
     // Salva novos canhotos na tabela canhoto_photos

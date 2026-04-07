@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import api from '../../api'
 import StatusBadge from '../../components/StatusBadge'
 import Modal from '../../components/Modal'
@@ -20,9 +20,12 @@ function TubesSummary({ d, compact = false }) {
   const p10 = d.tubes_p10 || d.tubes_qty_p10 || 0
   const total = p5 + p10
   if (!d.tubes_had && total === 0) return null
+  const valP5    = (p5  * 0.50).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const valP10   = (p10 * 1.00).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const valTotal = ((p5 * 0.50) + (p10 * 1.00)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   if (compact) return (
     <div className="flex flex-wrap gap-1 mt-1">
-      {total > 0 && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">🔄 {total} tubos (P5:{p5} P10:{p10})</span>}
+      {total > 0 && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">🔄 {total} tubos (P5:{p5} P10:{p10}) · {valTotal}</span>}
       {d.tubes_pending ? <span className="text-xs bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-full">⚠ pendente</span> : null}
       <PaymentBadge status={d.tubes_payment_status} />
     </div>
@@ -31,9 +34,21 @@ function TubesSummary({ d, compact = false }) {
     <div className="bg-blue-50 rounded-xl p-3 space-y-2">
       <p className="text-xs font-bold text-blue-700 uppercase">Tubos Recolhidos</p>
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div><div className="text-lg font-black text-blue-800">{p5}</div><div className="text-xs text-blue-500">P5</div></div>
-        <div><div className="text-lg font-black text-blue-800">{p10}</div><div className="text-xs text-blue-500">P10</div></div>
-        <div><div className="text-lg font-black text-blue-900">{total}</div><div className="text-xs text-blue-500">Total</div></div>
+        <div>
+          <div className="text-lg font-black text-blue-800">{p5}</div>
+          <div className="text-xs text-blue-500">P5</div>
+          <div className="text-xs font-semibold text-blue-600">{valP5}</div>
+        </div>
+        <div>
+          <div className="text-lg font-black text-blue-800">{p10}</div>
+          <div className="text-xs text-blue-500">P10</div>
+          <div className="text-xs font-semibold text-blue-600">{valP10}</div>
+        </div>
+        <div>
+          <div className="text-lg font-black text-blue-900">{total}</div>
+          <div className="text-xs text-blue-500">Total</div>
+          <div className="text-xs font-bold text-blue-800">{valTotal}</div>
+        </div>
       </div>
       {d.tubes_pending ? (
         <div className="bg-red-50 rounded-lg px-3 py-1.5 text-xs text-red-700">
@@ -70,6 +85,12 @@ export default function AdminLogistica() {
   const [payLoading, setPayLoading] = useState(null)  // id da entrega sendo paga
   const [error, setError]         = useState('')
   const [delModal, setDelModal]   = useState(null)
+  const [adminLaunch, setAdminLaunch] = useState(null)     // entrega sendo lançada pelo admin
+  const [adminForm, setAdminForm] = useState({})
+  const [adminFiles, setAdminFiles] = useState([])
+  const [adminLoading, setAdminLoading] = useState(false)
+  const [adminErrors, setAdminErrors] = useState([])
+  const adminFileRef = useRef(null)
 
   const loadAll = async () => {
     const [ordersRes, delivRes, usersRes, vehiclesRes] = await Promise.all([
@@ -114,6 +135,53 @@ export default function AdminLogistica() {
       alert(e.response?.data?.error || 'Erro ao atualizar pagamento')
     } finally {
       setPayLoading(null)
+    }
+  }
+
+  const openAdminLaunch = (d) => {
+    setAdminLaunch(d)
+    setAdminForm({
+      status: d.status,
+      driver_id: d.driver_id,
+      tubes_had: d.tubes_had != null ? String(d.tubes_had) : '',
+      tubes_qty_p5: d.tubes_p5 || 0,
+      tubes_qty_p10: d.tubes_p10 || 0,
+      tubes_pending: d.tubes_pending != null ? String(d.tubes_pending) : '',
+      tubes_pending_p5: d.tubes_pending_p5 || 0,
+      tubes_pending_p10: d.tubes_pending_p10 || 0,
+      tubes_obs: d.tubes_obs || '',
+      observations: d.observations || '',
+    })
+    setAdminFiles([])
+    setAdminErrors([])
+  }
+
+  const handleAdminLaunch = async (targetStatus) => {
+    setAdminLoading(true)
+    setAdminErrors([])
+    try {
+      const fd = new FormData()
+      fd.append('status', targetStatus)
+      fd.append('driver_id', adminForm.driver_id || adminLaunch.driver_id)
+      if (adminForm.tubes_had !== '') fd.append('tubes_had', adminForm.tubes_had)
+      fd.append('tubes_qty_p5', adminForm.tubes_qty_p5 || 0)
+      fd.append('tubes_qty_p10', adminForm.tubes_qty_p10 || 0)
+      if (adminForm.tubes_pending !== '') fd.append('tubes_pending', adminForm.tubes_pending)
+      fd.append('tubes_pending_p5', adminForm.tubes_pending_p5 || 0)
+      fd.append('tubes_pending_p10', adminForm.tubes_pending_p10 || 0)
+      if (adminForm.tubes_obs) fd.append('tubes_obs', adminForm.tubes_obs)
+      if (adminForm.observations) fd.append('observations', adminForm.observations)
+      for (const f of adminFiles) fd.append('canhoto_photos', f)
+      await api.put(`/deliveries/${adminLaunch.id}/status`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      await loadAll()
+      setAdminLaunch(null)
+    } catch (e) {
+      const msgs = e.response?.data?.messages || [e.response?.data?.error || 'Erro ao atualizar entrega']
+      setAdminErrors(msgs)
+    } finally {
+      setAdminLoading(false)
     }
   }
 
@@ -201,7 +269,7 @@ export default function AdminLogistica() {
             </div>
           )}
           {inTransit.map(d => (
-            <button key={d.id} onClick={() => setDelModal(d)} className="card p-4 w-full text-left hover:bg-slate-50 transition-colors">
+            <button key={d.id} onClick={() => openAdminLaunch(d)} className="card p-4 w-full text-left hover:bg-slate-50 transition-colors">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-slate-800 truncate">{d.client_name}</div>
@@ -385,6 +453,26 @@ export default function AdminLogistica() {
       {/* ── Tubos ─────────────────────────────────────────────────── */}
       {tab === 'tubos' && tubesReport && (
         <div className="space-y-4">
+          {/* Resumo financeiro geral */}
+          {(() => {
+            const allDelivs = deliveries.filter(d => (d.tubes_p5 || 0) + (d.tubes_p10 || 0) > 0)
+            const pendVal = allDelivs.filter(d => d.tubes_payment_status !== 'pago' && d.tubes_payment_status !== 'isento')
+              .reduce((acc, d) => acc + (d.tubes_value_total || ((d.tubes_p5||0)*0.50 + (d.tubes_p10||0)*1.00)), 0)
+            const paidVal = allDelivs.filter(d => d.tubes_payment_status === 'pago')
+              .reduce((acc, d) => acc + (d.tubes_value_total || ((d.tubes_p5||0)*0.50 + (d.tubes_p10||0)*1.00)), 0)
+            return (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="card p-3 text-center border-l-4 border-red-400">
+                  <div className="text-lg font-black text-red-600">{pendVal.toLocaleString('pt-BR', {style:'currency',currency:'BRL'})}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">Pendente de pagamento</div>
+                </div>
+                <div className="card p-3 text-center border-l-4 border-green-400">
+                  <div className="text-lg font-black text-green-600">{paidVal.toLocaleString('pt-BR', {style:'currency',currency:'BRL'})}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">Já pago</div>
+                </div>
+              </div>
+            )
+          })()}
           {/* Por motorista */}
           {tubesReport.by_driver?.length > 0 && (
             <div className="card p-4">
@@ -398,6 +486,9 @@ export default function AdminLogistica() {
                     </div>
                     <div className="text-right flex-shrink-0">
                       <div className="text-sm font-bold text-blue-700">{d.total_collected} recolhidos</div>
+                      {d.total_value > 0 && (
+                        <div className="text-xs font-bold text-blue-600">{Number(d.total_value).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</div>
+                      )}
                       {d.total_pending > 0 && (
                         <div className="text-xs font-bold text-red-600">{d.total_pending} pendentes</div>
                       )}
@@ -465,6 +556,129 @@ export default function AdminLogistica() {
           <div className="animate-spin rounded-full h-8 w-8 border-4 border-brand-500 border-t-transparent"/>
         </div>
       )}
+
+      {/* ── Modal: Admin lançar entrega ──────────────────────────── */}
+      <Modal open={!!adminLaunch} onClose={() => setAdminLaunch(null)} title="Lançar Entrega (Admin)">
+        {adminLaunch && (
+          <div className="space-y-4 text-sm">
+            <div className="bg-slate-50 rounded-lg p-3">
+              <div className="font-bold text-slate-800">{adminLaunch.client_name}</div>
+              <div className="text-xs text-slate-500">{adminLaunch.address}, {adminLaunch.city}</div>
+              <StatusBadge status={adminLaunch.status} />
+              {adminLaunch.acted_by_role === 'admin' && (
+                <div className="mt-1 text-xs text-orange-600 font-semibold">Lançado pelo administrador</div>
+              )}
+            </div>
+
+            {/* Reatribuir motorista */}
+            <div>
+              <label className="label">Motorista</label>
+              <select value={adminForm.driver_id} onChange={e => setAdminForm(p => ({...p, driver_id: e.target.value}))} className="input">
+                <option value="">Selecione...</option>
+                {drivers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+
+            {/* Tubos */}
+            <div className="bg-blue-50 rounded-xl p-3 space-y-3">
+              <p className="text-xs font-bold text-blue-700 uppercase">Tubos Recolhidos</p>
+              <div>
+                <label className="label text-blue-700">Houve recolhimento?</label>
+                <div className="flex gap-2">
+                  {[['1','Sim'],['0','Não']].map(([v,l]) => (
+                    <button key={v} type="button"
+                      onClick={() => setAdminForm(p => ({...p, tubes_had: v}))}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-colors ${adminForm.tubes_had === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'}`}
+                    >{l}</button>
+                  ))}
+                </div>
+              </div>
+              {adminForm.tubes_had === '1' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="label">P5 (R$ 0,50)</label>
+                    <input type="number" min="0" value={adminForm.tubes_qty_p5} onChange={e => setAdminForm(p => ({...p, tubes_qty_p5: e.target.value}))} className="input" />
+                  </div>
+                  <div>
+                    <label className="label">P10 (R$ 1,00)</label>
+                    <input type="number" min="0" value={adminForm.tubes_qty_p10} onChange={e => setAdminForm(p => ({...p, tubes_qty_p10: e.target.value}))} className="input" />
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="label text-blue-700">Ficou pendência?</label>
+                <div className="flex gap-2">
+                  {[['1','Sim'],['0','Não']].map(([v,l]) => (
+                    <button key={v} type="button"
+                      onClick={() => setAdminForm(p => ({...p, tubes_pending: v}))}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-colors ${adminForm.tubes_pending === v ? 'bg-red-500 text-white border-red-500' : 'bg-white text-slate-600 border-slate-200'}`}
+                    >{l}</button>
+                  ))}
+                </div>
+              </div>
+              {adminForm.tubes_pending === '1' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="label">Pendente P5</label>
+                    <input type="number" min="0" value={adminForm.tubes_pending_p5} onChange={e => setAdminForm(p => ({...p, tubes_pending_p5: e.target.value}))} className="input" />
+                  </div>
+                  <div>
+                    <label className="label">Pendente P10</label>
+                    <input type="number" min="0" value={adminForm.tubes_pending_p10} onChange={e => setAdminForm(p => ({...p, tubes_pending_p10: e.target.value}))} className="input" />
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="label">Observação de tubos</label>
+                <input type="text" value={adminForm.tubes_obs} onChange={e => setAdminForm(p => ({...p, tubes_obs: e.target.value}))} className="input" placeholder="Opcional..." />
+              </div>
+            </div>
+
+            {/* Canhoto */}
+            <div>
+              <label className="label">Foto(s) do canhoto</label>
+              <input ref={adminFileRef} type="file" accept="image/*" multiple capture="environment"
+                onChange={e => setAdminFiles(Array.from(e.target.files))}
+                className="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-brand-50 file:text-brand-700 file:font-semibold hover:file:bg-brand-100" />
+              {adminFiles.length > 0 && <p className="text-xs text-green-600 mt-1">{adminFiles.length} foto(s) selecionada(s)</p>}
+            </div>
+
+            {/* Observações */}
+            <div>
+              <label className="label">Observações</label>
+              <textarea value={adminForm.observations} onChange={e => setAdminForm(p => ({...p, observations: e.target.value}))} className="input" rows={2} placeholder="Opcional..." />
+            </div>
+
+            {/* Erros */}
+            {adminErrors.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-1">
+                {adminErrors.map((msg, i) => <p key={i} className="text-xs text-red-700">• {msg}</p>)}
+              </div>
+            )}
+
+            {/* Botões de status */}
+            <div>
+              <p className="text-xs font-bold text-slate-500 uppercase mb-2">Atualizar Status</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { s: 'saiu_entrega',   label: '🚚 Saiu p/ Entrega' },
+                  { s: 'chegou_cliente', label: '📍 Chegou no Cliente' },
+                  { s: 'ocorrencia',     label: '⚠ Ocorrência' },
+                  { s: 'entregue',       label: '✅ Concluir Entrega' },
+                ].map(({ s, label }) => (
+                  <button key={s} type="button"
+                    onClick={() => handleAdminLaunch(s)}
+                    disabled={adminLoading}
+                    className={`py-2.5 px-3 rounded-lg text-xs font-bold border transition-colors disabled:opacity-50 ${
+                      s === 'entregue' ? 'bg-green-500 text-white border-green-500 hover:bg-green-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >{adminLoading ? '...' : label}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ── Modal: Atribuir motorista ─────────────────────────────── */}
       <Modal open={!!selected} onClose={() => setSelected(null)} title={`Enviar Pedido #${selected?.id}`}>
