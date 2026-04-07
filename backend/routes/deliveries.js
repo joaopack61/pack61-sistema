@@ -209,6 +209,10 @@ router.put('/:id/status',
       tubes_obs, no_proof_reason,
     } = req.body;
 
+    // tubes_p5 / tubes_p10 espelham qty_p5 / qty_p10 para consulta do admin
+    const p5_val  = tubes_qty_p5  ? parseInt(tubes_qty_p5)  : null;
+    const p10_val = tubes_qty_p10 ? parseInt(tubes_qty_p10) : null;
+
     const VALID_STATUS = ['pendente','saiu_entrega','chegou_cliente','entregue','ocorrencia','nao_entregue'];
     if (!VALID_STATUS.includes(status)) return res.status(400).json({ error: 'Status invalido' });
 
@@ -259,6 +263,7 @@ router.put('/:id/status',
         status=?, observations=?, occurrence=?, no_delivery_reason=?,
         tubes_collected=?, tubes_quantity=?,
         tubes_had=?, tubes_qty_p5=?, tubes_qty_p10=?,
+        tubes_p5=?, tubes_p10=?,
         tubes_pending=?, tubes_pending_p5=?, tubes_pending_p10=?,
         tubes_pending_qty=?,
         tubes_obs=?, no_proof_reason=?,
@@ -275,6 +280,8 @@ router.put('/:id/status',
       tubes_had       !== undefined && tubes_had !== '' ? parseInt(tubes_had)  : d.tubes_had,
       tubes_qty_p5    ? parseInt(tubes_qty_p5)    : (d.tubes_qty_p5 || 0),
       tubes_qty_p10   ? parseInt(tubes_qty_p10)   : (d.tubes_qty_p10 || 0),
+      tubes_qty_p5    ? parseInt(tubes_qty_p5)    : (d.tubes_p5 || 0),
+      tubes_qty_p10   ? parseInt(tubes_qty_p10)   : (d.tubes_p10 || 0),
       tubes_pending   !== undefined && tubes_pending !== '' ? parseInt(tubes_pending) : d.tubes_pending,
       tubes_pending_p5  ? parseInt(tubes_pending_p5)  : (d.tubes_pending_p5 || 0),
       tubes_pending_p10 ? parseInt(tubes_pending_p10) : (d.tubes_pending_p10 || 0),
@@ -297,5 +304,18 @@ router.put('/:id/status',
     res.json({ success: true });
   }
 );
+
+// Marcar status financeiro dos tubos
+router.patch('/:id/payment', authorize('admin'), (req, res) => {
+  const { payment_status } = req.body;
+  if (!['pendente', 'pago', 'isento'].includes(payment_status))
+    return res.status(400).json({ error: 'Status invalido. Use: pendente, pago ou isento' });
+  const db = getDb();
+  const d = db.prepare('SELECT id FROM deliveries WHERE id=?').get(req.params.id);
+  if (!d) return res.status(404).json({ error: 'Entrega nao encontrada' });
+  db.prepare('UPDATE deliveries SET tubes_payment_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+    .run(payment_status, req.params.id);
+  res.json({ success: true, payment_status });
+});
 
 module.exports = router;

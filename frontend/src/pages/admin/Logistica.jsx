@@ -3,6 +3,48 @@ import api from '../../api'
 import StatusBadge from '../../components/StatusBadge'
 import Modal from '../../components/Modal'
 
+// Badge de status financeiro dos tubos
+function PaymentBadge({ status }) {
+  if (!status || status === 'pendente')
+    return <span className="inline-flex items-center gap-1 text-xs font-bold bg-red-50 text-red-600 px-2 py-0.5 rounded-full">💰 Pendente</span>
+  if (status === 'pago')
+    return <span className="inline-flex items-center gap-1 text-xs font-bold bg-green-50 text-green-700 px-2 py-0.5 rounded-full">✅ Pago</span>
+  if (status === 'isento')
+    return <span className="inline-flex items-center gap-1 text-xs font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">— Isento</span>
+  return null
+}
+
+// Card resumo de tubos numa entrega
+function TubesSummary({ d, compact = false }) {
+  const p5  = d.tubes_p5  || d.tubes_qty_p5  || 0
+  const p10 = d.tubes_p10 || d.tubes_qty_p10 || 0
+  const total = p5 + p10
+  if (!d.tubes_had && total === 0) return null
+  if (compact) return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {total > 0 && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">🔄 {total} tubos (P5:{p5} P10:{p10})</span>}
+      {d.tubes_pending ? <span className="text-xs bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-full">⚠ pendente</span> : null}
+      <PaymentBadge status={d.tubes_payment_status} />
+    </div>
+  )
+  return (
+    <div className="bg-blue-50 rounded-xl p-3 space-y-2">
+      <p className="text-xs font-bold text-blue-700 uppercase">Tubos Recolhidos</p>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div><div className="text-lg font-black text-blue-800">{p5}</div><div className="text-xs text-blue-500">P5</div></div>
+        <div><div className="text-lg font-black text-blue-800">{p10}</div><div className="text-xs text-blue-500">P10</div></div>
+        <div><div className="text-lg font-black text-blue-900">{total}</div><div className="text-xs text-blue-500">Total</div></div>
+      </div>
+      {d.tubes_pending ? (
+        <div className="bg-red-50 rounded-lg px-3 py-1.5 text-xs text-red-700">
+          ⚠ Pendente: P5={d.tubes_pending_p5 || 0} · P10={d.tubes_pending_p10 || 0}
+        </div>
+      ) : null}
+      {d.tubes_obs ? <p className="text-xs text-blue-600 italic">"{d.tubes_obs}"</p> : null}
+    </div>
+  )
+}
+
 function CanhotoStatus({ d }) {
   const count = d.photo_count || (d.canhoto_photo ? 1 : 0) || (d.canhoto_photos?.length ?? 0)
   if (count > 0)
@@ -25,6 +67,7 @@ export default function AdminLogistica() {
   const [selected, setSelected]   = useState(null)
   const [form, setForm]           = useState({ driver_id: '', vehicle_id: '' })
   const [loading, setLoading]     = useState(false)
+  const [payLoading, setPayLoading] = useState(null)  // id da entrega sendo paga
   const [error, setError]         = useState('')
   const [delModal, setDelModal]   = useState(null)
 
@@ -59,6 +102,20 @@ export default function AdminLogistica() {
   useEffect(() => { if (tab === 'tubos') loadTubes() }, [tab])
 
   const openAssign = (order) => { setSelected(order); setForm({ driver_id: '', vehicle_id: '' }); setError('') }
+
+  const markPayment = async (deliveryId, status) => {
+    setPayLoading(deliveryId)
+    try {
+      await api.patch(`/deliveries/${deliveryId}/payment`, { payment_status: status })
+      await loadAll()
+      // Atualiza o delModal se estiver aberto
+      if (delModal?.id === deliveryId) setDelModal(d => ({ ...d, tubes_payment_status: status }))
+    } catch (e) {
+      alert(e.response?.data?.error || 'Erro ao atualizar pagamento')
+    } finally {
+      setPayLoading(null)
+    }
+  }
 
   const handleAssign = async () => {
     if (!form.driver_id) { setError('Selecione um motorista'); return }
@@ -164,23 +221,80 @@ export default function AdminLogistica() {
         <div className="space-y-2">
           <p className="text-xs text-slate-500">{completed.length} entrega(s) finalizada(s)</p>
           {completed.map(d => (
-            <button key={d.id} onClick={() => setDelModal(d)} className="card p-4 w-full text-left hover:bg-slate-50 transition-colors">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-slate-800 truncate">{d.client_name}</div>
-                  <div className="text-xs text-slate-500">{d.driver_name} · {d.city}</div>
-                  {d.completion_time && (
-                    <div className="text-xs text-slate-400">{new Date(d.completion_time).toLocaleString('pt-BR')}</div>
-                  )}
+            <div key={d.id} className="card p-4 space-y-3">
+              {/* Cabeçalho clicável */}
+              <button onClick={() => setDelModal(d)} className="w-full text-left">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-slate-800 truncate">{d.client_name}</div>
+                    <div className="text-xs text-slate-500">{d.driver_name} · {d.city}</div>
+                    {d.completion_time && (
+                      <div className="text-xs text-slate-400">{new Date(d.completion_time).toLocaleString('pt-BR')}</div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <StatusBadge status={d.status} />
+                    <CanhotoStatus d={d} />
+                  </div>
                 </div>
-                <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  <StatusBadge status={d.status} />
-                  <CanhotoStatus d={d} />
-                  {d.tubes_had ? <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">🔄 {d.tubes_quantity || 0} tubos</span> : null}
-                  {d.tubes_pending ? <span className="text-xs bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-full">⚠ tubo pendente</span> : null}
+              </button>
+
+              {/* Tubos + financeiro (só se tiver tubos) */}
+              {(d.tubes_had || (d.tubes_p5 || 0) + (d.tubes_p10 || 0) > 0) && (
+                <div className="border-t border-slate-100 pt-2 space-y-2">
+                  {/* Linha de totais */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-500">Tubos:</span>
+                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
+                      P5: {d.tubes_p5 || d.tubes_qty_p5 || 0}
+                    </span>
+                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
+                      P10: {d.tubes_p10 || d.tubes_qty_p10 || 0}
+                    </span>
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">
+                      Total: {(d.tubes_p5 || d.tubes_qty_p5 || 0) + (d.tubes_p10 || d.tubes_qty_p10 || 0)}
+                    </span>
+                    {d.tubes_pending ? (
+                      <span className="text-xs bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-full">⚠ pendente</span>
+                    ) : null}
+                  </div>
+
+                  {/* Controle financeiro */}
+                  <div className="flex items-center justify-between gap-2">
+                    <PaymentBadge status={d.tubes_payment_status} />
+                    <div className="flex gap-1">
+                      {d.tubes_payment_status !== 'pago' && (
+                        <button
+                          onClick={() => markPayment(d.id, 'pago')}
+                          disabled={payLoading === d.id}
+                          className="text-xs bg-green-500 hover:bg-green-600 active:bg-green-700 text-white font-bold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {payLoading === d.id ? '...' : '✅ Marcar como pago'}
+                        </button>
+                      )}
+                      {d.tubes_payment_status === 'pago' && (
+                        <button
+                          onClick={() => markPayment(d.id, 'pendente')}
+                          disabled={payLoading === d.id}
+                          className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-600 font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          Desfazer
+                        </button>
+                      )}
+                      {d.tubes_payment_status !== 'isento' && (
+                        <button
+                          onClick={() => markPayment(d.id, 'isento')}
+                          disabled={payLoading === d.id}
+                          className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-500 font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          Isento
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </button>
+              )}
+            </div>
           ))}
           {completed.length === 0 && <div className="text-center py-8 text-slate-400">Nenhuma entrega finalizada</div>}
         </div>
@@ -401,17 +515,37 @@ export default function AdminLogistica() {
               {delModal.completion_time && <div><span className="text-slate-500 text-xs block">Conclusão</span><span>{new Date(delModal.completion_time).toLocaleTimeString('pt-BR')}</span></div>}
             </div>
 
-            {/* Tubos */}
-            <div className="flex gap-2 flex-wrap">
-              {delModal.tubes_had
-                ? <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1 rounded-full">🔄 {delModal.tubes_quantity || 0} tubos recolhidos</span>
-                : <span className="text-xs bg-slate-100 text-slate-400 px-3 py-1 rounded-full">Sem tubo</span>}
-              {delModal.tubes_pending
-                ? <span className="text-xs bg-red-50 text-red-600 font-bold px-3 py-1 rounded-full">⚠ {delModal.tubes_pending_qty} pendentes</span>
-                : null}
-            </div>
-            {delModal.tubes_obs && (
-              <div className="bg-blue-50 rounded-lg p-2 text-xs text-blue-700">{delModal.tubes_obs}</div>
+            {/* Tubos detalhado */}
+            <TubesSummary d={delModal} />
+
+            {/* Controle financeiro no modal */}
+            {(delModal.tubes_had || (delModal.tubes_p5 || 0) + (delModal.tubes_p10 || 0) > 0) && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-400 uppercase">Status Financeiro dos Tubos</p>
+                <div className="flex items-center justify-between gap-2">
+                  <PaymentBadge status={delModal.tubes_payment_status} />
+                  <div className="flex gap-1.5">
+                    {delModal.tubes_payment_status !== 'pago' && (
+                      <button onClick={() => markPayment(delModal.id, 'pago')} disabled={payLoading === delModal.id}
+                        className="text-xs bg-green-500 text-white font-bold px-3 py-1.5 rounded-lg disabled:opacity-50">
+                        {payLoading === delModal.id ? '...' : '✅ Marcar pago'}
+                      </button>
+                    )}
+                    {delModal.tubes_payment_status === 'pago' && (
+                      <button onClick={() => markPayment(delModal.id, 'pendente')} disabled={payLoading === delModal.id}
+                        className="text-xs bg-slate-200 text-slate-600 font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50">
+                        Desfazer
+                      </button>
+                    )}
+                    {delModal.tubes_payment_status !== 'isento' && (
+                      <button onClick={() => markPayment(delModal.id, 'isento')} disabled={payLoading === delModal.id}
+                        className="text-xs bg-slate-100 text-slate-500 font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50">
+                        Isento
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             )}
 
             {/* Canhoto */}

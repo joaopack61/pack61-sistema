@@ -581,15 +581,18 @@ function _runMigrations() {
 
   // Cada item: [coluna, definição SQL]
   const deliveryCols = [
-    ['tubes_had',          'INTEGER DEFAULT 0'],
-    ['tubes_qty_p5',       'INTEGER DEFAULT 0'],
-    ['tubes_qty_p10',      'INTEGER DEFAULT 0'],
-    ['tubes_pending',      'INTEGER DEFAULT 0'],
-    ['tubes_pending_qty',  'INTEGER DEFAULT 0'],
-    ['tubes_pending_p5',   'INTEGER DEFAULT 0'],
-    ['tubes_pending_p10',  'INTEGER DEFAULT 0'],
-    ['tubes_obs',          'TEXT'],
-    ['no_proof_reason',    'TEXT'],
+    ['tubes_had',             'INTEGER DEFAULT 0'],
+    ['tubes_qty_p5',          'INTEGER DEFAULT 0'],
+    ['tubes_qty_p10',         'INTEGER DEFAULT 0'],
+    ['tubes_p5',              'INTEGER DEFAULT 0'],
+    ['tubes_p10',             'INTEGER DEFAULT 0'],
+    ['tubes_payment_status',  "TEXT DEFAULT 'pendente'"],
+    ['tubes_pending',         'INTEGER DEFAULT 0'],
+    ['tubes_pending_qty',     'INTEGER DEFAULT 0'],
+    ['tubes_pending_p5',      'INTEGER DEFAULT 0'],
+    ['tubes_pending_p10',     'INTEGER DEFAULT 0'],
+    ['tubes_obs',             'TEXT'],
+    ['no_proof_reason',       'TEXT'],
   ];
 
   let added = 0;
