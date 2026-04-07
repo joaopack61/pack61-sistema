@@ -569,6 +569,50 @@ function _seedData() {
   console.log('[Pack61] Seed completo: 7 usuarios, 8 clientes, 10 SKUs, 10 visitas, 8 pedidos.');
 }
 
+// ─── Migrações incrementais (idempotentes) ────────────────────────────────────
+// Executadas APÓS _createSchema() para garantir que bancos antigos do Railway
+// recebam as novas colunas sem precisar apagar o banco existente.
+function _runMigrations() {
+  // Lê colunas atuais da tabela deliveries
+  const cols = _db.exec('PRAGMA table_info(deliveries)');
+  const existing = new Set(
+    cols.length && cols[0].values ? cols[0].values.map(r => r[1]) : []
+  );
+
+  // Cada item: [coluna, definição SQL]
+  const deliveryCols = [
+    ['tubes_had',          'INTEGER DEFAULT 0'],
+    ['tubes_qty_p5',       'INTEGER DEFAULT 0'],
+    ['tubes_qty_p10',      'INTEGER DEFAULT 0'],
+    ['tubes_pending',      'INTEGER DEFAULT 0'],
+    ['tubes_pending_qty',  'INTEGER DEFAULT 0'],
+    ['tubes_pending_p5',   'INTEGER DEFAULT 0'],
+    ['tubes_pending_p10',  'INTEGER DEFAULT 0'],
+    ['tubes_obs',          'TEXT'],
+    ['no_proof_reason',    'TEXT'],
+  ];
+
+  let added = 0;
+  for (const [col, def] of deliveryCols) {
+    if (!existing.has(col)) {
+      _db.run(`ALTER TABLE deliveries ADD COLUMN ${col} ${def}`);
+      added++;
+    }
+  }
+
+  // Tabela canhoto_photos (CREATE IF NOT EXISTS — seguro rodar sempre)
+  _db.run(`CREATE TABLE IF NOT EXISTS canhoto_photos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id INTEGER NOT NULL REFERENCES deliveries(id),
+    filename    TEXT NOT NULL,
+    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  if (added > 0) {
+    console.log(`[Pack61] Migração: ${added} coluna(s) adicionada(s) à tabela deliveries.`);
+  }
+}
+
 // ─── Init Assíncrono ──────────────────────────────────────────────────────────
 
 async function initDatabase() {
@@ -585,6 +629,7 @@ async function initDatabase() {
   _db.run('PRAGMA foreign_keys = OFF');
 
   _createSchema();
+  _runMigrations();  // adiciona colunas novas em bancos existentes
   _seedData();
 
   // Habilitar foreign keys para uso em runtime
