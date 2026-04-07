@@ -21,8 +21,11 @@ router.get('/', (req, res) => {
     const orders_production = db.prepare(`SELECT COUNT(*) as c FROM orders WHERE status='em_producao'`).get().c;
     const orders_ready = db.prepare(`SELECT COUNT(*) as c FROM orders WHERE status='pronto_expedicao'`).get().c;
     const orders_delivered = db.prepare(`SELECT COUNT(*) as c FROM orders WHERE status='entregue' AND DATE(updated_at)>=?`).get(monthStart).c;
-    const deliveries_with_canhoto = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE canhoto_photo IS NOT NULL AND DATE(updated_at)>=?`).get(monthStart).c;
-    const tubes_month = db.prepare(`SELECT COALESCE(SUM(tubes_quantity),0) as t FROM deliveries WHERE tubes_collected=1 AND DATE(updated_at)>=?`).get(monthStart).t;
+    const deliveries_with_canhoto = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE (canhoto_photo IS NOT NULL OR (SELECT COUNT(*) FROM canhoto_photos cp WHERE cp.delivery_id=deliveries.id)>0) AND DATE(updated_at)>=?`).get(monthStart).c;
+    const deliveries_without_canhoto = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE status='entregue' AND canhoto_photo IS NULL AND (SELECT COUNT(*) FROM canhoto_photos cp WHERE cp.delivery_id=deliveries.id)=0 AND DATE(updated_at)>=?`).get(monthStart).c;
+    const tubes_month = db.prepare(`SELECT COALESCE(SUM(tubes_quantity),0) as t FROM deliveries WHERE tubes_had=1 AND DATE(updated_at)>=?`).get(monthStart).t;
+    const tubes_week = db.prepare(`SELECT COALESCE(SUM(tubes_quantity),0) as t FROM deliveries WHERE tubes_had=1 AND DATE(updated_at)>=?`).get(weekStart).t;
+    const tubes_pending_open = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE tubes_pending=1`).get().c;
     const low_stock = db.prepare(`SELECT COUNT(*) as c FROM skus s LEFT JOIN stock st ON s.id=st.sku_id WHERE s.active=1 AND st.quantity_available<=s.min_stock`).get().c;
     const total_clients = db.prepare(`SELECT COUNT(*) as c FROM clients WHERE active=1`).get().c;
 
@@ -39,7 +42,7 @@ router.get('/', (req, res) => {
     const ticket_medio = orders_month_total.c > 0 ? Math.round(orders_month_total.v / orders_month_total.c) : 0;
     const revenue_by_day = db.prepare(`SELECT DATE(created_at) as day, COALESCE(SUM(total_value),0) as total FROM orders WHERE DATE(created_at)>=? AND status!='cancelado' GROUP BY DATE(created_at) ORDER BY day ASC`).all(monthStart);
 
-    return res.json({ visits_today, visits_week, visits_month, orders_pending, orders_production, orders_ready, orders_delivered, deliveries_with_canhoto, tubes_month, low_stock, total_clients, top_sellers, order_status_chart, visits_by_seller, loss_reasons, revenue_month, revenue_pending, orders_paid, ticket_medio, revenue_by_day, orders_month: orders_month_total.c });
+    return res.json({ visits_today, visits_week, visits_month, orders_pending, orders_production, orders_ready, orders_delivered, deliveries_with_canhoto, deliveries_without_canhoto, tubes_month, tubes_week, tubes_pending_open, low_stock, total_clients, top_sellers, order_status_chart, visits_by_seller, loss_reasons, revenue_month, revenue_pending, orders_paid, ticket_medio, revenue_by_day, orders_month: orders_month_total.c });
   }
 
   if (role === 'vendedor') {
@@ -58,10 +61,11 @@ router.get('/', (req, res) => {
   if (role === 'motorista') {
     const pending = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE driver_id=? AND status='pendente'`).get(userId).c;
     const done_today = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE driver_id=? AND status='entregue' AND DATE(updated_at)=?`).get(userId, today).c;
-    const with_canhoto = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE driver_id=? AND canhoto_photo IS NOT NULL AND DATE(updated_at)>=?`).get(userId, monthStart).c;
-    const tubes_today = db.prepare(`SELECT COALESCE(SUM(tubes_quantity),0) as t FROM deliveries WHERE driver_id=? AND tubes_collected=1 AND DATE(updated_at)=?`).get(userId, today).t;
+    const with_canhoto = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE driver_id=? AND (canhoto_photo IS NOT NULL OR (SELECT COUNT(*) FROM canhoto_photos cp WHERE cp.delivery_id=deliveries.id)>0) AND DATE(updated_at)>=?`).get(userId, monthStart).c;
+    const tubes_today = db.prepare(`SELECT COALESCE(SUM(tubes_quantity),0) as t FROM deliveries WHERE driver_id=? AND tubes_had=1 AND DATE(updated_at)=?`).get(userId, today).t;
+    const tubes_pending_count = db.prepare(`SELECT COUNT(*) as c FROM deliveries WHERE driver_id=? AND tubes_pending=1`).get(userId).c;
     const pending_list = db.prepare(`SELECT d.*,c.name as client_name,c.address,c.city FROM deliveries d LEFT JOIN orders o ON d.order_id=o.id LEFT JOIN clients c ON o.client_id=c.id WHERE d.driver_id=? AND d.status IN ('pendente','saiu_entrega','chegou_cliente') ORDER BY d.created_at`).all(userId);
-    return res.json({ pending, done_today, with_canhoto, tubes_today, pending_list });
+    return res.json({ pending, done_today, with_canhoto, tubes_today, tubes_pending_count, pending_list });
   }
 
   if (role === 'producao') {

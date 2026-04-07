@@ -304,8 +304,19 @@ function _createSchema() {
        delivery_photo     TEXT,
        tubes_collected    INTEGER DEFAULT 0,
        tubes_quantity     INTEGER DEFAULT 0,
+       tubes_had          INTEGER DEFAULT 0,
+       tubes_pending      INTEGER DEFAULT 0,
+       tubes_pending_qty  INTEGER DEFAULT 0,
+       tubes_obs          TEXT,
+       no_proof_reason    TEXT,
        created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
        updated_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+     )`,
+    `CREATE TABLE IF NOT EXISTS canhoto_photos (
+       id          INTEGER PRIMARY KEY AUTOINCREMENT,
+       delivery_id INTEGER NOT NULL REFERENCES deliveries(id),
+       filename    TEXT NOT NULL,
+       uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
      )`,
     `CREATE TABLE IF NOT EXISTS audit_logs (
        id         INTEGER PRIMARY KEY AUTOINCREMENT,

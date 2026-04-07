@@ -119,9 +119,37 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           <KPICard label="Visitas" value={data.visits_month} icon="👁️" color="brand" />
           <KPICard label="Clientes" value={data.total_clients} icon="🏢" color="blue" />
-          <KPICard label="Canhotos" value={data.deliveries_with_canhoto} icon="📄" color="green" />
-          <KPICard label="Tubos Recolhidos" value={data.tubes_month} icon="🔄" color="slate" />
+          <KPICard label="Canhotos OK" value={data.deliveries_with_canhoto} icon="📄" color="green" />
+          <KPICard label="Sem Canhoto" value={data.deliveries_without_canhoto} icon="⚠️" color="slate" />
         </div>
+      </div>
+
+      {/* ── KPIs de Tubos ────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tubos</h2>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="card p-4">
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Recolhidos (mês)</div>
+            <div className="text-2xl font-black text-blue-600">{fmt(data.tubes_month)}</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Recolhidos (semana)</div>
+            <div className="text-2xl font-black text-blue-500">{fmt(data.tubes_week)}</div>
+          </div>
+          <div className="card p-4">
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Pendências abertas</div>
+            <div className={`text-2xl font-black ${data.tubes_pending_open > 0 ? 'text-red-600' : 'text-green-600'}`}>{fmt(data.tubes_pending_open)}</div>
+          </div>
+        </div>
+        {data.tubes_pending_open > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3 mt-2">
+            <span className="text-red-500 text-xl flex-shrink-0">⚠️</span>
+            <div>
+              <p className="text-sm font-bold text-red-700">{data.tubes_pending_open} entrega(s) com tubo pendente</p>
+              <p className="text-xs text-red-500">Ver módulo de logística → Tubos</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Gráfico de faturamento por dia ───────────────────────── */}
