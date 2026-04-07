@@ -109,7 +109,7 @@ As variáveis são configurações secretas do sistema (como a senha do JWT).
 
 | Perfil       | E-mail                    | Senha  |
 |--------------|---------------------------|--------|
-| Administrador | admin@pack61.com.br      | 123456 |
+| Administrador | admin@pack61.com.br      | admin123 |
 | Vendedor      | carlos@pack61.com.br     | 123456 |
 | Motorista     | joao@pack61.com.br       | 123456 |
 | Produção      | producao@pack61.com.br   | 123456 |

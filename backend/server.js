@@ -46,19 +46,29 @@ app.get('/api/health', (_req, res) =>
 );
 
 // ─── Frontend estático (React buildado pelo Vite) ────────────────────────────
-// Em produção o Railway executa "npm run build" que gera frontend/dist/
+// O Railway executa "npm run build" antes de "npm start", gerando frontend/dist/
 const frontendDist = path.join(__dirname, '../frontend/dist');
+const indexHtml    = path.join(frontendDist, 'index.html');
+
 if (fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist));
-  // SPA fallback: qualquer rota não-API retorna o index.html
-  app.get('*', (req, res) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return res.status(404).end();
-    res.sendFile(path.join(frontendDist, 'index.html'));
-  });
   console.log('[Pack61] Frontend servido de:', frontendDist);
 } else {
-  console.log('[Pack61] Modo desenvolvimento — frontend rodando separado (Vite)');
+  console.warn('[Pack61] AVISO: frontend/dist nao encontrado. Rode "npm run build" primeiro.');
 }
+
+// Registra os middlewares SEMPRE (independente do build existir)
+// para garantir que as rotas estejam ativas quando o servidor sobe
+app.use(express.static(frontendDist));
+
+// SPA fallback: qualquer rota que nao seja /api ou /uploads devolve o index.html
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+    return res.status(404).json({ error: 'Rota nao encontrada' });
+  }
+  res.sendFile(indexHtml, (err) => {
+    if (err) res.status(404).send('Frontend nao buildado. Execute: npm run build');
+  });
+});
 
 // ─── Error handler ────────────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
