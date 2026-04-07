@@ -11,7 +11,9 @@ const fs       = require('fs');
 const path     = require('path');
 const bcrypt   = require('bcryptjs');
 
-const DB_PATH  = path.join(__dirname, 'pack61.db');
+const DB_PATH  = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(__dirname, 'pack61.db');
 
 let _SQL = null;   // sql.js namespace (aguarda initDb)
 let _db  = null;   // instância sql.js Database
