@@ -1,0 +1,12 @@
+{
+  "name": "pack61-sistema",
+  "version": "1.0.0",
+  "description": "Pack61 - Sistema de Gestao Industrial",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend",
+    "start": "node backend/server.js",
+    "dev:back": "node backend/server.js",
+    "dev:front": "npm run dev --prefix frontend"
+  }
+}

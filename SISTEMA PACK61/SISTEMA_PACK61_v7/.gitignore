@@ -1,0 +1,30 @@
+# Dependencias
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build do frontend
+frontend/dist/
+
+# Banco de dados
+backend/pack61.db
+*.db
+
+# Uploads (fotos, canhotos)
+backend/uploads/
+
+# Variaveis de ambiente
+.env
+backend/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
