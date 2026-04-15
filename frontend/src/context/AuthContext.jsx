@@ -5,19 +5,18 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('pack61_user')) } catch { return null }
+    try { return JSON.parse(localStorage.getItem('user')) } catch { return null }
   })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const token = localStorage.getItem('pack61_token')
+    const token = localStorage.getItem('access_token')
     if (token) {
       api.get('/auth/me').then(r => {
         setUser(r.data.user)
-        localStorage.setItem('pack61_user', JSON.stringify(r.data.user))
+        localStorage.setItem('user', JSON.stringify(r.data.user))
       }).catch(() => {
-        localStorage.removeItem('pack61_token')
-        localStorage.removeItem('pack61_user')
+        localStorage.clear()
         setUser(null)
       }).finally(() => setLoading(false))
     } else {
@@ -26,16 +25,17 @@ export function AuthProvider({ children }) {
   }, [])
 
   const login = async (email, password) => {
-    const r = await api.post('/auth/login', { email, password })
-    localStorage.setItem('pack61_token', r.data.token)
-    localStorage.setItem('pack61_user', JSON.stringify(r.data.user))
-    setUser(r.data.user)
-    return r.data.user
+    const { data } = await api.post('/auth/login', { email, password })
+    localStorage.setItem('access_token', data.access_token)
+    localStorage.setItem('refresh_token', data.refresh_token)
+    localStorage.setItem('user', JSON.stringify(data.user))
+    setUser(data.user)
+    return data.user
   }
 
-  const logout = () => {
-    localStorage.removeItem('pack61_token')
-    localStorage.removeItem('pack61_user')
+  const logout = async () => {
+    try { await api.post('/auth/logout') } catch {}
+    localStorage.clear()
     setUser(null)
   }
 

@@ -1,9 +1,10 @@
+'use strict';
 const { auditLog } = require('../database');
 
-// Middleware que injeta auditLog no request e registra mutações automaticamente
+// Middleware que injeta auditLog no request
 function withAudit(req, res, next) {
   req.audit = (action, tableName, recordId, details = {}) => {
-    auditLog(req.user?.id, action, tableName, recordId, details);
+    auditLog(req.user?.id, action, tableName, recordId, null, details);
   };
   next();
 }
@@ -15,7 +16,7 @@ function autoAudit(action, tableName) {
     res.json = (data) => {
       if (res.statusCode < 400 && req.user) {
         const recordId = data?.id || req.params?.id || null;
-        auditLog(req.user.id, action, tableName, recordId ? parseInt(recordId) : null, {
+        auditLog(req.user.id, action, tableName, recordId ? parseInt(recordId) : null, null, {
           method: req.method,
           path: req.path,
           body: sanitizeBody(req.body),
@@ -33,10 +34,4 @@ function sanitizeBody(body = {}) {
   return safe;
 }
 
-// Registra login no audit_logs
-function logLogin(db, userId, ip) {
-  auditLog(userId, 'login', 'users', userId, { ip: ip || 'unknown' });
-  db.prepare('UPDATE users SET last_login=CURRENT_TIMESTAMP WHERE id=?').run(userId);
-}
-
-module.exports = { withAudit, autoAudit, logLogin, auditLog };
+module.exports = { withAudit, autoAudit, auditLog };

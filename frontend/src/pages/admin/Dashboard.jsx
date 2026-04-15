@@ -26,6 +26,7 @@ export default function AdminDashboard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [pipeline, setPipeline] = useState([])
+  const [deliveryKPIs, setDeliveryKPIs] = useState({ AGUARDANDO:0, DISPONIVEL:0, EM_ROTA:0, ENTREGUE:0, avgMinutes:null, highAttempts:0 })
 
   useEffect(() => {
     Promise.all([
@@ -36,6 +37,19 @@ export default function AdminDashboard() {
       const counts = {}
       orders.data.forEach(o => { counts[o.status] = (counts[o.status] || 0) + 1 })
       setPipeline(STATUS_PIPELINE.map(s => ({ ...s, count: counts[s.key] || 0 })))
+
+      // KPIs de logística
+      const ds = { AGUARDANDO:0, DISPONIVEL:0, EM_ROTA:0, ENTREGUE:0 }
+      let totalMin = 0, countMin = 0, highAttempts = 0
+      orders.data.forEach(o => {
+        if (o.delivery_status && ds[o.delivery_status] !== undefined) ds[o.delivery_status]++
+        if (o.assigned_at && o.delivered_at) {
+          const mins = (new Date(o.delivered_at) - new Date(o.assigned_at)) / 60000
+          if (mins > 0) { totalMin += mins; countMin++ }
+        }
+        if ((o.delivery_attempts || 0) >= 2) highAttempts++
+      })
+      setDeliveryKPIs({ ...ds, avgMinutes: countMin > 0 ? Math.round(totalMin/countMin) : null, highAttempts })
     }).finally(() => setLoading(false))
   }, [])
 
@@ -86,6 +100,33 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {/* ── KPIs Financeiros Adicionais ──────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Financeiro — Detalhes</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="card p-4 bg-blue-50">
+            <div className="text-xs font-semibold text-blue-700 uppercase mb-1">Tubos a Receber</div>
+            <div className="text-xl font-black text-blue-800 leading-tight">{fmtR(data.tubes_pending_value)}</div>
+            <div className="text-xs text-slate-400 mt-1">Cobranças de tubos</div>
+          </div>
+          <div className={`card p-4 ${data.inadimplencia_total > 0 ? 'bg-red-50' : ''}`}>
+            <div className="text-xs font-semibold text-red-700 uppercase mb-1">Inadimplência</div>
+            <div className={`text-xl font-black leading-tight ${data.inadimplencia_total > 0 ? 'text-red-700' : 'text-slate-800'}`}>{fmtR(data.inadimplencia_total)}</div>
+            <div className="text-xs text-slate-400 mt-1">Total atrasado</div>
+          </div>
+          <div className="card p-4 bg-green-50">
+            <div className="text-xs font-semibold text-green-700 uppercase mb-1">Motoristas Ativos</div>
+            <div className="text-xl font-black text-green-800 leading-tight">{fmt(data.motoristas_ativos)}</div>
+            <div className="text-xs text-slate-400 mt-1">Em rota agora</div>
+          </div>
+          <div className={`card p-4 ${data.high_attempts > 0 ? 'bg-red-50' : ''}`}>
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Múltiplas Tentativas</div>
+            <div className={`text-xl font-black leading-tight ${data.high_attempts > 0 ? 'text-red-600' : 'text-slate-800'}`}>{fmt(data.high_attempts)}</div>
+            <div className="text-xs text-slate-400 mt-1">Pedidos com 2+ tentativas</div>
+          </div>
+        </div>
+      </div>
+
       {/* ── Pipeline de Pedidos ──────────────────────────────────── */}
       <div>
         <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pipeline de Pedidos</h2>
@@ -112,6 +153,41 @@ export default function AdminDashboard() {
           </div>
         </Link>
       )}
+
+      {/* ── Logística em Tempo Real ──────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Logística em Tempo Real</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {[
+            { key: 'AGUARDANDO', label: 'Aguardando',  color: 'text-slate-500',  bg: 'bg-slate-50',   icon: '⏳' },
+            { key: 'DISPONIVEL', label: 'Disponíveis', color: 'text-green-600',  bg: 'bg-green-50',   icon: '📦' },
+            { key: 'EM_ROTA',    label: 'Em Rota',     color: 'text-blue-600',   bg: 'bg-blue-50',    icon: '🚚' },
+            { key: 'ENTREGUE',   label: 'Entregues',   color: 'text-emerald-600',bg: 'bg-emerald-50', icon: '✅' },
+          ].map(s => (
+            <div key={s.key} className={`card p-4 ${s.bg}`}>
+              <div className="text-2xl mb-1">{s.icon}</div>
+              <div className={`text-2xl font-black ${s.color}`}>{deliveryKPIs[s.key]}</div>
+              <div className="text-xs font-semibold text-slate-500 mt-0.5">{s.label}</div>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="card p-4">
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Tempo Médio Entrega</div>
+            <div className="text-xl font-black text-brand-600">
+              {deliveryKPIs.avgMinutes != null ? `${deliveryKPIs.avgMinutes} min` : '—'}
+            </div>
+            <div className="text-xs text-slate-400 mt-1">Do aceite até a conclusão</div>
+          </div>
+          <div className={`card p-4 ${deliveryKPIs.highAttempts > 0 ? 'bg-red-50' : ''}`}>
+            <div className="text-xs font-semibold text-slate-400 uppercase mb-1">Múltiplas Tentativas</div>
+            <div className={`text-xl font-black ${deliveryKPIs.highAttempts > 0 ? 'text-red-600' : 'text-slate-800'}`}>
+              {deliveryKPIs.highAttempts}
+            </div>
+            <div className="text-xs text-slate-400 mt-1">Pedidos com 2+ tentativas</div>
+          </div>
+        </div>
+      </div>
 
       {/* ── KPIs Operacionais ────────────────────────────────────── */}
       <div>

@@ -7,6 +7,8 @@ const NAV = {
     { to: '/admin/pedidos', label: 'Pedidos', icon: '📋' },
     { to: '/admin/logistica', label: 'Logística', icon: '🚚' },
     { to: '/admin/clientes', label: 'Clientes', icon: '🏢' },
+    { to: '/admin/financeiro', label: 'Financeiro', icon: '💰' },
+    { to: '/admin/produtos', label: 'Produtos', icon: '📦' },
     { to: '/admin/relatorios', label: 'Relatórios', icon: '📈' },
     { to: '/admin/usuarios', label: 'Usuários', icon: '👥' },
   ],

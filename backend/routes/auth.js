@@ -1,31 +1,39 @@
+'use strict';
 const express = require('express');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { getDb } = require('../database');
-const { authenticate, JWT_SECRET } = require('../middleware/auth');
-const { logLogin } = require('../middleware/audit');
+const { authenticate } = require('../middleware/auth');
+const { loginLimiter } = require('../middleware/rateLimiter');
+const authService = require('../services/authService');
 
 const router = express.Router();
 
-router.post('/login', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'E-mail e senha obrigatórios' });
-
-  const user = getDb().prepare('SELECT * FROM users WHERE email = ? AND active = 1').get(
-    email.toLowerCase().trim()
-  );
-
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: 'E-mail ou senha incorretos' });
+router.post('/login', loginLimiter, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: true, message: 'E-mail e senha obrigatórios', code: 'MISSING_FIELDS' });
+    const result = await authService.login(email, password);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: true, message: e.message, code: e.code || 'LOGIN_ERROR' });
   }
+});
 
-  logLogin(getDb(), user.id, req.ip);
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    const result = await authService.refresh(refresh_token);
+    res.json(result);
+  } catch (e) {
+    res.status(e.status || 401).json({ error: true, message: e.message, code: e.code || 'REFRESH_ERROR' });
+  }
+});
 
-  const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '12h' });
-  res.json({
-    token,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, phone: user.phone },
-  });
+router.post('/logout', authenticate, async (req, res) => {
+  try {
+    await authService.logout(req.user.id);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: true, message: e.message });
+  }
 });
 
 router.get('/me', authenticate, (req, res) => {

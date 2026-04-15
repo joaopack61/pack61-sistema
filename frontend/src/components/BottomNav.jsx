@@ -6,7 +6,8 @@ const BOTTOM_NAV = {
     { to: '/admin', label: 'Home', icon: '📊', end: true },
     { to: '/admin/pedidos', label: 'Pedidos', icon: '📋' },
     { to: '/admin/logistica', label: 'Logística', icon: '🚚' },
-    { to: '/admin/relatorios', label: 'Relatórios', icon: '📈' },
+    { to: '/admin/financeiro', label: 'Financeiro', icon: '💰' },
+    { to: '/admin/produtos', label: 'Produtos', icon: '📦' },
   ],
   vendedor: [
     { to: '/vendedor', label: 'Home', icon: '📊', end: true },

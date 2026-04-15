@@ -1,183 +1,177 @@
+'use strict';
 const express = require('express');
-const { getDb, auditLog } = require('../database');
+const multer  = require('multer');
+const path    = require('path');
+const fs      = require('fs');
+const { query, auditLog } = require('../database');
 const { authenticate, authorize } = require('../middleware/auth');
+const orderService = require('../services/orderService');
 
 const router = express.Router();
 router.use(authenticate);
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
+const uploadsDir = process.env.UPLOAD_PATH
+  ? path.resolve(process.env.UPLOAD_PATH)
+  : path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const upload = multer({ storage: multer.diskStorage({
+  destination: uploadsDir,
+  filename: (req, file, cb) => cb(null, `ord_${Date.now()}_${Math.random().toString(36).slice(2)}${path.extname(file.originalname)}`),
+}), limits: { fileSize: 15 * 1024 * 1024 } });
 
-// Reserva estoque quando pedido é criado; libera quando cancelado
-function adjustStockReservation(db, orderId, action) {
-  const items = db.prepare('SELECT * FROM order_items WHERE order_id=?').all(orderId);
-  const movType = action === 'reserve' ? 'reserva' : 'cancelamento_reserva';
-
-  items.forEach(item => {
-    const stock = db.prepare('SELECT * FROM stock WHERE sku_id=?').get(item.sku_id);
-    if (!stock) return;
-
-    let reserved = stock.quantity_reserved;
-    let available = stock.quantity_available;
-
-    if (action === 'reserve') {
-      reserved += item.quantity;
-      available -= item.quantity;
-    } else {
-      reserved = Math.max(0, reserved - item.quantity);
-      available += item.quantity;
-    }
-
-    db.prepare('UPDATE stock SET quantity_reserved=?,quantity_available=?,updated_at=CURRENT_TIMESTAMP WHERE sku_id=?')
-      .run(reserved, available, item.sku_id);
-
-    db.prepare('INSERT INTO stock_movements (sku_id,type,quantity,reason,reference_id,operator_id) VALUES (?,?,?,?,?,?)')
-      .run(item.sku_id, movType, item.quantity, `Pedido #${orderId}`, orderId, null);
-  });
-}
-
-// Desconta estoque físico quando pedido é entregue
-function consumeStock(db, orderId) {
-  const items = db.prepare('SELECT * FROM order_items WHERE order_id=?').all(orderId);
-  items.forEach(item => {
-    const stock = db.prepare('SELECT * FROM stock WHERE sku_id=?').get(item.sku_id);
-    if (!stock) return;
-    const physical  = Math.max(0, stock.quantity_physical - item.quantity);
-    const reserved  = Math.max(0, stock.quantity_reserved - item.quantity);
-    const available = Math.max(0, stock.quantity_available);
-    db.prepare('UPDATE stock SET quantity_physical=?,quantity_reserved=?,quantity_available=?,updated_at=CURRENT_TIMESTAMP WHERE sku_id=?')
-      .run(physical, reserved, available, item.sku_id);
-    db.prepare('INSERT INTO stock_movements (sku_id,type,quantity,reason,reference_id,operator_id) VALUES (?,?,?,?,?,?)')
-      .run(item.sku_id, 'saida', item.quantity, `Pedido entregue #${orderId}`, orderId, null);
-  });
-}
-
-// ─── GET /orders ──────────────────────────────────────────────────────────────
-router.get('/', (req, res) => {
-  const db = getDb();
-  let q = `
-    SELECT o.*,
-      c.name as client_name, c.city, c.phone, c.whatsapp,
-      u.name as seller_name
-    FROM orders o
-    LEFT JOIN clients c ON o.client_id=c.id
-    LEFT JOIN users u   ON o.seller_id=u.id
-    WHERE 1=1`;
-  const p = [];
-
-  if (req.user.role === 'vendedor') { q += ' AND o.seller_id=?'; p.push(req.user.id); }
-  if (req.query.status)    { q += ' AND o.status=?';              p.push(req.query.status); }
-  if (req.query.seller_id) { q += ' AND o.seller_id=?';           p.push(req.query.seller_id); }
-  if (req.query.client_id) { q += ' AND o.client_id=?';           p.push(req.query.client_id); }
-  if (req.query.date_from) { q += ' AND DATE(o.created_at)>=?';   p.push(req.query.date_from); }
-  if (req.query.date_to)   { q += ' AND DATE(o.created_at)<=?';   p.push(req.query.date_to); }
-
-  q += ' ORDER BY o.created_at DESC';
-  const orders = db.prepare(q).all(...p);
-
-  orders.forEach(o => {
-    o.items = db.prepare(
-      'SELECT oi.*, s.name as sku_name, s.code as sku_code, s.unit FROM order_items oi LEFT JOIN skus s ON oi.sku_id=s.id WHERE oi.order_id=?'
-    ).all(o.id);
-  });
-
-  res.json(orders);
+// SSE Stream
+router.get('/delivery/stream', authorize('admin','motorista'), (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  res.write(':ok\n\n');
+  orderService.addSseClient(res);
 });
 
-// ─── GET /orders/:id ─────────────────────────────────────────────────────────
-router.get('/:id', (req, res) => {
-  const db = getDb();
-  const order = db.prepare(`
-    SELECT o.*, c.name as client_name, c.address, c.city, c.phone, c.whatsapp,
-      u.name as seller_name
-    FROM orders o
-    LEFT JOIN clients c ON o.client_id=c.id
-    LEFT JOIN users u   ON o.seller_id=u.id
-    WHERE o.id=?`).get(req.params.id);
-  if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
-  order.items = db.prepare(
-    'SELECT oi.*, s.name as sku_name, s.code as sku_code, s.unit FROM order_items oi LEFT JOIN skus s ON oi.sku_id=s.id WHERE oi.order_id=?'
-  ).all(order.id);
-  res.json(order);
-});
-
-// ─── POST /orders ─────────────────────────────────────────────────────────────
-router.post('/', authorize('admin', 'vendedor'), (req, res) => {
-  const db = getDb();
-  const { client_id, visit_id, payment_terms, delivery_date, notes, items } = req.body;
-  if (!client_id || !items?.length) return res.status(400).json({ error: 'Cliente e itens são obrigatórios' });
-
-  const seller_id = req.user.role === 'vendedor' ? req.user.id : (req.body.seller_id || req.user.id);
-  const total = items.reduce((a, i) => a + (i.quantity * (i.unit_price || 0)), 0);
-
-  const createOrder = db.transaction(() => {
-    const result = db.prepare(
-      'INSERT INTO orders (client_id,seller_id,visit_id,payment_terms,delivery_date,notes,total_value) VALUES (?,?,?,?,?,?,?)'
-    ).run(client_id, seller_id, visit_id, payment_terms, delivery_date, notes, total);
-    const orderId = result.lastInsertRowid;
-
-    const insItem = db.prepare('INSERT INTO order_items (order_id,sku_id,quantity,unit_price,total_price) VALUES (?,?,?,?,?)');
-    items.forEach(i => insItem.run(orderId, i.sku_id, i.quantity, i.unit_price || 0, i.quantity * (i.unit_price || 0)));
-
-    // Criar ordem de produção
-    db.prepare("INSERT INTO production_orders (order_id,status) VALUES (?,'pendente')").run(orderId);
-
-    // Reservar estoque
-    adjustStockReservation(db, orderId, 'reserve');
-
-    auditLog(req.user.id, 'order_created', 'orders', orderId, { client_id, total });
-    return orderId;
-  });
-
+// GET /orders/delivery
+router.get('/delivery', authorize('admin','motorista'), async (req, res) => {
   try {
-    const orderId = createOrder();
+    const ds = req.query.status || 'DISPONIVEL';
+    const result = await query(`
+      SELECT o.id, o.delivery_status, o.total_value, o.valor_total, o.updated_at,
+        c.name as client_name, c.razao_social, c.address, c.endereco, c.city, c.cidade, c.phone, c.contato_telefone,
+        u.name as driver_name
+      FROM orders o
+      LEFT JOIN clients c ON o.client_id=c.id
+      LEFT JOIN users u ON o.driver_id=u.id
+      WHERE o.delivery_status=$1
+      ORDER BY o.updated_at DESC LIMIT 100
+    `, [ds]);
+    const orders = result.rows;
+    for (const o of orders) {
+      const items = await query('SELECT oi.*, p.nome as sku_name, p.nome as product_name FROM order_items oi LEFT JOIN products p ON oi.product_id=p.id WHERE oi.order_id=$1', [o.id]);
+      o.items = items.rows;
+    }
+    res.json(orders);
+  } catch (e) { res.status(500).json({ error: true, message: e.message }); }
+});
+
+// GET /orders
+router.get('/', async (req, res) => {
+  try {
+    let sql = `SELECT o.*, c.name as client_name, c.razao_social, c.city, c.cidade, c.phone, u.name as seller_name
+               FROM orders o LEFT JOIN clients c ON o.client_id=c.id LEFT JOIN users u ON o.seller_id=u.id WHERE 1=1`;
+    const params = [];
+    let i = 1;
+    if (req.user.role === 'vendedor') { sql += ` AND o.seller_id=$${i++}`; params.push(req.user.id); }
+    if (req.user.role === 'producao') { sql += ` AND o.status IN ('pendente','em_producao','produzido')`; }
+    if (req.query.status) { sql += ` AND o.status=$${i++}`; params.push(req.query.status); }
+    if (req.query.client_id) { sql += ` AND o.client_id=$${i++}`; params.push(req.query.client_id); }
+    if (req.query.date_from) { sql += ` AND DATE(o.created_at)>=$${i++}`; params.push(req.query.date_from); }
+    if (req.query.date_to) { sql += ` AND DATE(o.created_at)<=$${i++}`; params.push(req.query.date_to); }
+    sql += ' ORDER BY o.created_at DESC LIMIT 200';
+    const result = await query(sql, params);
+    const orders = result.rows;
+    for (const o of orders) {
+      const items = await query('SELECT oi.*, COALESCE(p.nome, s.name) as sku_name FROM order_items oi LEFT JOIN products p ON oi.product_id=p.id LEFT JOIN skus s ON oi.sku_id=s.id WHERE oi.order_id=$1', [o.id]);
+      o.items = items.rows;
+    }
+    res.json(orders);
+  } catch (e) { res.status(500).json({ error: true, message: e.message }); }
+});
+
+// GET /orders/:id
+router.get('/:id', async (req, res) => {
+  try {
+    const result = await query(`SELECT o.*, c.name as client_name, c.razao_social, c.address, c.city, c.phone, c.contato_telefone, u.name as seller_name FROM orders o LEFT JOIN clients c ON o.client_id=c.id LEFT JOIN users u ON o.seller_id=u.id WHERE o.id=$1`, [req.params.id]);
+    const order = result.rows[0];
+    if (!order) return res.status(404).json({ error: true, message: 'Pedido não encontrado' });
+    const items = await query('SELECT oi.*, COALESCE(p.nome, s.name) as sku_name FROM order_items oi LEFT JOIN products p ON oi.product_id=p.id LEFT JOIN skus s ON oi.sku_id=s.id WHERE oi.order_id=$1', [order.id]);
+    order.items = items.rows;
+    res.json(order);
+  } catch (e) { res.status(500).json({ error: true, message: e.message }); }
+});
+
+// POST /orders
+router.post('/', authorize('admin','vendedor'), async (req, res) => {
+  try {
+    const { client_id, items, payment_terms, condicao_pagamento, delivery_date, notes } = req.body;
+    if (!client_id || !items?.length) return res.status(400).json({ error: true, message: 'Cliente e itens são obrigatórios' });
+
+    // Verificar bloqueio do cliente
+    const clientRes = await query('SELECT status, bloqueio_motivo FROM clients WHERE id=$1', [client_id]);
+    const client = clientRes.rows[0];
+    if (client?.status === 'BLOQUEADO') {
+      return res.status(422).json({ error: true, message: `Cliente bloqueado: ${client.bloqueio_motivo || 'contate o administrador'}`, code: 'CLIENT_BLOCKED' });
+    }
+
+    const seller_id = req.user.role === 'vendedor' ? req.user.id : (req.body.seller_id || req.user.id);
+    const total = items.reduce((a, i) => a + (parseFloat(i.quantity||i.quantidade||0) * parseFloat(i.unit_price||i.preco_unitario||0)), 0);
+    const origem = req.user.role === 'admin' ? 'ADMIN' : 'VENDEDOR';
+
+    const orderRes = await query(
+      `INSERT INTO orders (client_id, seller_id, origem, status, condicao_pagamento, payment_terms, delivery_date, notes, total_value, valor_total, delivery_status, created_at, updated_at)
+       VALUES ($1,$2,$3,'pendente',$4,$5,$6,$7,$8,$8,'AGUARDANDO',now(),now()) RETURNING id`,
+      [client_id, seller_id, origem, condicao_pagamento||payment_terms||'A_VISTA', payment_terms||null, delivery_date||null, notes||null, total]
+    );
+    const orderId = orderRes.rows[0].id;
+
+    for (const item of items) {
+      const qty = parseFloat(item.quantity||item.quantidade||0);
+      const price = parseFloat(item.unit_price||item.preco_unitario||0);
+      await query(
+        'INSERT INTO order_items (order_id, product_id, sku_id, quantity, quantidade, unit_price, preco_unitario, total_price, subtotal) VALUES ($1,$2,$3,$4,$4,$5,$5,$6,$6)',
+        [orderId, item.product_id||null, item.sku_id||null, qty, price, qty*price]
+      );
+    }
+
+    await query("INSERT INTO production_orders (order_id, status) VALUES ($1,'pendente')", [orderId]);
+    await orderService.logStatusHistory(orderId, null, 'pendente', 'status', req.user.id, 'Pedido criado');
+    await auditLog(req.user.id, 'order_created', 'orders', orderId, null, { client_id, total });
     res.status(201).json({ id: orderId });
-  } catch(e) {
-    console.error('[orders POST] Erro:', e && e.message, e);
-    res.status(500).json({ error: e?.message || 'Erro ao criar pedido' });
-  }
+  } catch (e) { res.status(500).json({ error: true, message: e.message }); }
 });
 
-// ─── PUT /orders/:id/status ───────────────────────────────────────────────────
-router.put('/:id/status', authorize('admin', 'producao', 'motorista'), (req, res) => {
-  const { status, notes } = req.body;
-  const VALID = ['pendente','em_producao','produzido','pronto_expedicao','entregue','cancelado'];
-  if (!VALID.includes(status)) return res.status(400).json({ error: 'Status inválido' });
-
-  const db = getDb();
-  const order = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
-  if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
-
-  const update = db.transaction(() => {
-    db.prepare('UPDATE orders SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(status, order.id);
-
-    // Se cancelado → liberar reserva
-    if (status === 'cancelado' && order.status !== 'cancelado') {
-      adjustStockReservation(db, order.id, 'release');
-    }
-    // Se entregue → descontar estoque físico
-    if (status === 'entregue' && order.status !== 'entregue') {
-      consumeStock(db, order.id);
-    }
-
-    auditLog(req.user.id, 'order_status_changed', 'orders', order.id, {
-      from: order.status, to: status
-    });
-  });
-
-  update();
-  res.json({ success: true });
+// PUT /orders/:id/status
+router.put('/:id/status', authorize('admin','producao'), async (req, res) => {
+  try {
+    const { status, notes } = req.body;
+    await orderService.changeStatus(parseInt(req.params.id), status, req.user.id, notes);
+    res.json({ success: true });
+  } catch (e) { res.status(e.status||500).json({ error: true, message: e.message, code: e.code }); }
 });
 
-// ─── PUT /orders/:id/payment ──────────────────────────────────────────────────
-router.put('/:id/payment', authorize('admin'), (req, res) => {
-  const { payment_status, invoice_number } = req.body;
-  const VALID = ['pendente','faturado','pago','vencido','cancelado'];
-  if (!VALID.includes(payment_status)) return res.status(400).json({ error: 'Status inválido' });
+// PUT /orders/:id/accept
+router.put('/:id/accept', authorize('admin','motorista'), async (req, res) => {
+  try {
+    await orderService.acceptDelivery(parseInt(req.params.id), req.user.id);
+    res.json({ success: true });
+  } catch (e) { res.status(e.status||500).json({ error: true, message: e.message, code: e.code }); }
+});
 
-  getDb().prepare('UPDATE orders SET payment_status=?,invoice_number=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
-    .run(payment_status, invoice_number, req.params.id);
-  auditLog(req.user.id, 'payment_status_changed', 'orders', parseInt(req.params.id), { payment_status });
-  res.json({ success: true });
+// PUT /orders/:id/complete
+router.put('/:id/complete', authorize('admin','motorista'), upload.single('delivery_photo'), async (req, res) => {
+  try {
+    const photoUrl = req.file ? `/uploads/${req.file.filename}` : null;
+    const p5 = parseInt(req.body.tubes_p5 || req.body.tubes_qty_p5 || 0);
+    const p10 = parseInt(req.body.tubes_p10 || req.body.tubes_qty_p10 || 0);
+    await orderService.completeDelivery(parseInt(req.params.id), req.user.id, photoUrl, p5, p10, req.body.notes);
+    res.json({ success: true, delivery_proof_url: photoUrl });
+  } catch (e) { res.status(e.status||500).json({ error: true, message: e.message, code: e.code }); }
+});
+
+// PUT /orders/:id/attempt-failed
+router.put('/:id/attempt-failed', authorize('admin','motorista'), async (req, res) => {
+  try {
+    await orderService.attemptFailed(parseInt(req.params.id), req.user.id, req.body.reason);
+    res.json({ success: true });
+  } catch (e) { res.status(e.status||500).json({ error: true, message: e.message, code: e.code }); }
+});
+
+// PUT /orders/:id/payment
+router.put('/:id/payment', authorize('admin'), async (req, res) => {
+  try {
+    const { payment_status, invoice_number } = req.body;
+    await query('UPDATE orders SET payment_status=$1, invoice_number=$2, updated_at=now() WHERE id=$3', [payment_status, invoice_number||null, req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: true, message: e.message }); }
 });
 
 module.exports = router;
