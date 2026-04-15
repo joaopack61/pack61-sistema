@@ -41,7 +41,10 @@ async function changeStatus(orderId, newStatus, userId, obs) {
   const valid = ['pendente','em_producao','produzido','pronto_expedicao','entregue','cancelado'];
   if (!valid.includes(newStatus)) throw Object.assign(new Error('Status inválido'), { status: 400 });
 
-  let deliveryStatus = order.delivery_status;
+  // Normalizar delivery_status nulo (pedidos antigos migrados)
+  const currentDeliveryStatus = order.delivery_status || 'AGUARDANDO';
+
+  let deliveryStatus = currentDeliveryStatus;
   if (newStatus === 'pronto_expedicao') deliveryStatus = 'DISPONIVEL';
   if (newStatus === 'cancelado') deliveryStatus = 'AGUARDANDO';
 
@@ -51,8 +54,8 @@ async function changeStatus(orderId, newStatus, userId, obs) {
   );
 
   await logStatusHistory(orderId, order.status, newStatus, 'status', userId, obs);
-  if (deliveryStatus !== order.delivery_status) {
-    await logStatusHistory(orderId, order.delivery_status, deliveryStatus, 'delivery_status', userId, 'Auto');
+  if (deliveryStatus !== currentDeliveryStatus) {
+    await logStatusHistory(orderId, currentDeliveryStatus, deliveryStatus, 'delivery_status', userId, 'Auto');
   }
 
   // Notificar motoristas via SSE quando pedido ficar disponível

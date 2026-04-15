@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import api from '../../api'
 import StatusBadge from '../../components/StatusBadge'
 import Modal from '../../components/Modal'
@@ -70,27 +71,37 @@ function CanhotoStatus({ d }) {
 }
 
 export default function AdminLogistica() {
-  const [tab, setTab]             = useState('expedicao')
+  const [searchParams] = useSearchParams()
+  const [tab, setTab]             = useState(searchParams.get('tab') || 'expedicao')
   const [readyOrders, setReadyOrders] = useState([])
   const [deliveries, setDeliveries]   = useState([])
   const [drivers, setDrivers]         = useState([])
   const [vehicles, setVehicles]       = useState([])
   const [canhotos, setCanhotos]       = useState([])
   const [tubesReport, setTubesReport] = useState(null)
-  const [canhotoFilter, setCanhotoFilter] = useState('')   // '' | '0' | '1'
+  const [canhotoFilter, setCanhotoFilter] = useState('')
   const [canhotoDriver, setCanhotoDriver] = useState('')
   const [selected, setSelected]   = useState(null)
   const [form, setForm]           = useState({ driver_id: '', vehicle_id: '' })
   const [loading, setLoading]     = useState(false)
-  const [payLoading, setPayLoading] = useState(null)  // id da entrega sendo paga
+  const [payLoading, setPayLoading] = useState(null)
   const [error, setError]         = useState('')
   const [delModal, setDelModal]   = useState(null)
-  const [adminLaunch, setAdminLaunch] = useState(null)     // entrega sendo lançada pelo admin
+  const [adminLaunch, setAdminLaunch] = useState(null)
   const [adminForm, setAdminForm] = useState({})
   const [adminFiles, setAdminFiles] = useState([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminErrors, setAdminErrors] = useState([])
+  const [lightboxUrl, setLightboxUrl] = useState(null)
   const adminFileRef = useRef(null)
+
+  // Monta URL segura para imagens
+  const photoSrc = (raw) => {
+    if (!raw) return null
+    if (raw.startsWith('http')) return raw
+    if (raw.startsWith('/')) return raw
+    return `/uploads/${raw}`
+  }
 
   const loadAll = async () => {
     const [ordersRes, delivRes, usersRes, vehiclesRes] = await Promise.all([
@@ -119,6 +130,11 @@ export default function AdminLogistica() {
   }
 
   useEffect(() => { loadAll() }, [])
+  // Polling de 10s na aba expedição para capturar novos pedidos DISPONIVEL
+  useEffect(() => {
+    const id = setInterval(() => { if (tab === 'expedicao' || tab === 'em_rota') loadAll() }, 10000)
+    return () => clearInterval(id)
+  }, [tab])
   useEffect(() => { if (tab === 'canhotos') loadCanhotos() }, [tab, canhotoFilter, canhotoDriver])
   useEffect(() => { if (tab === 'tubos') loadTubes() }, [tab])
 
@@ -421,20 +437,19 @@ export default function AdminLogistica() {
                   </div>
                 </div>
                 {/* Links das fotos */}
-                {(c.photo_count > 0 || c.canhoto_photo) && (
-                  <div className="mt-2 flex gap-2 flex-wrap">
-                    {c.canhoto_photo && (
-                      <a href={`/uploads/${c.canhoto_photo}`} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-brand-600 underline">Ver foto 1</a>
-                    )}
-                    {/* Fotos adicionais carregadas apenas quando necessário */}
+                {(c.photo_count > 0 || c.canhoto_photo || c.delivery_proof_url) && (
+                  <div className="mt-2 flex gap-2 flex-wrap items-center">
+                    {[c.canhoto_photo, c.delivery_proof_url].filter(Boolean).map((url, i) => (
+                      <button key={i} type="button" onClick={() => setLightboxUrl(photoSrc(url))}
+                        className="w-14 h-14 rounded-lg overflow-hidden border-2 border-slate-200 hover:border-brand-400 transition-all flex-shrink-0">
+                        <img src={photoSrc(url)} alt={`canhoto ${i+1}`} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
                     {c.photo_count > 0 && (
                       <button
                         onClick={async () => {
                           const r = await api.get(`/deliveries/${c.id}/photos`)
-                          const links = r.data.map((p, i) => `<a href="/uploads/${p.filename}" target="_blank" rel="noopener">Foto ${i+1}</a>`).join(' · ')
-                          const win = window.open('', '_blank')
-                          win.document.write(`<title>Canhotos - ${c.client_name}</title><body style="font-family:sans-serif;padding:20px"><h3>${c.client_name}</h3>${r.data.map(p => `<img src="/uploads/${p.filename}" style="max-width:100%;margin:8px 0;display:block;border-radius:8px">`).join('')}</body>`)
+                          if (r.data?.[0]) setLightboxUrl(photoSrc(r.data[0].filename))
                         }}
                         className="text-xs text-brand-600 underline"
                       >
@@ -767,18 +782,24 @@ export default function AdminLogistica() {
               <p className="text-xs font-bold text-slate-400 uppercase mb-1">Comprovante</p>
               <div className="flex flex-wrap gap-2">
                 {delModal.canhoto_photo && (
-                  <a href={`/uploads/${delModal.canhoto_photo}`} target="_blank" rel="noopener noreferrer"
-                    className="block w-20 h-20 rounded-lg overflow-hidden border border-slate-200">
-                    <img src={`/uploads/${delModal.canhoto_photo}`} alt="canhoto" className="w-full h-full object-cover" />
-                  </a>
+                  <button type="button" onClick={() => setLightboxUrl(photoSrc(delModal.canhoto_photo))}
+                    className="block w-20 h-20 rounded-lg overflow-hidden border border-slate-200 hover:border-brand-400 transition-all">
+                    <img src={photoSrc(delModal.canhoto_photo)} alt="canhoto" className="w-full h-full object-cover" />
+                  </button>
+                )}
+                {delModal.delivery_proof_url && delModal.delivery_proof_url !== delModal.canhoto_photo && (
+                  <button type="button" onClick={() => setLightboxUrl(photoSrc(delModal.delivery_proof_url))}
+                    className="block w-20 h-20 rounded-lg overflow-hidden border border-slate-200 hover:border-brand-400 transition-all">
+                    <img src={photoSrc(delModal.delivery_proof_url)} alt="comprovante" className="w-full h-full object-cover" />
+                  </button>
                 )}
                 {delModal.canhoto_photos?.map((p, i) => (
-                  <a key={i} href={`/uploads/${p.filename}`} target="_blank" rel="noopener noreferrer"
-                    className="block w-20 h-20 rounded-lg overflow-hidden border border-slate-200">
-                    <img src={`/uploads/${p.filename}`} alt={`canhoto ${i+1}`} className="w-full h-full object-cover" />
-                  </a>
+                  <button key={i} type="button" onClick={() => setLightboxUrl(photoSrc(p.filename))}
+                    className="block w-20 h-20 rounded-lg overflow-hidden border border-slate-200 hover:border-brand-400 transition-all">
+                    <img src={photoSrc(p.filename)} alt={`canhoto ${i+1}`} className="w-full h-full object-cover" />
+                  </button>
                 ))}
-                {!delModal.canhoto_photo && !delModal.canhoto_photos?.length && (
+                {!delModal.canhoto_photo && !delModal.delivery_proof_url && !delModal.canhoto_photos?.length && (
                   <span className="text-xs text-slate-400">Nenhum comprovante enviado</span>
                 )}
               </div>
@@ -803,6 +824,24 @@ export default function AdminLogistica() {
           </div>
         )}
       </Modal>
+
+      {/* ── Lightbox ──────────────────────────────────────────────────────── */}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white text-3xl font-bold leading-none z-10">
+            ✕
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Comprovante"
+            onClick={e => e.stopPropagation()}
+            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl" />
+        </div>
+      )}
     </div>
   )
 }

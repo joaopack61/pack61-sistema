@@ -28,7 +28,12 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 app.use('/uploads', express.static(uploadsDir));
 
-// Rotas
+// Health check — ANTES de qualquer rota autenticada (Railway verifica isso)
+app.get('/api/health', (_req, res) =>
+  res.json({ status: 'ok', company: 'Pack61', version: '2.0', env: process.env.NODE_ENV || 'development' })
+);
+
+// Rotas da API
 app.use('/api/auth',       require('./routes/auth'));
 app.use('/api/users',      require('./routes/users'));
 app.use('/api/clients',    require('./routes/clients'));
@@ -41,10 +46,6 @@ app.use('/api/deliveries', require('./routes/deliveries'));
 app.use('/api/financial',  require('./routes/financial'));
 app.use('/api/dashboard',  require('./routes/dashboard'));
 app.use('/api/reports',    require('./routes/reports'));
-
-app.get('/api/health', (_req, res) =>
-  res.json({ status: 'ok', company: 'Pack61', version: '2.0', env: process.env.NODE_ENV || 'development' })
-);
 
 // Frontend
 const frontendDist = path.join(__dirname, '../frontend/dist');

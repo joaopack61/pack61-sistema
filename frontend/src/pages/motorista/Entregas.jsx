@@ -38,8 +38,17 @@ export default function MotoristaEntregas() {
     tubes_pending: '', tubes_pending_p5: 0, tubes_pending_p10: 0,
     tubes_obs: '', observations: '',
   })
-  const [photos, setPhotos]   = useState([])
+  const [photos, setPhotos]     = useState([])
+  const [lightboxUrl, setLightboxUrl] = useState(null)
   const fileRef               = useRef(null)
+
+  // Monta URL segura para imagens (relativa funciona no Railway)
+  const photoSrc = (raw) => {
+    if (!raw) return null
+    if (raw.startsWith('http')) return raw
+    if (raw.startsWith('/')) return raw
+    return `/uploads/${raw}`
+  }
 
   // ── Carregar dados ──────────────────────────────────────────────────────────
 
@@ -206,7 +215,7 @@ export default function MotoristaEntregas() {
 
       {lastRefresh && (
         <p className="text-xs text-slate-400 text-center">
-          Atualizado às {lastRefresh.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · Atualização automática a cada 30s
+          Atualizado às {lastRefresh.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · Atualização automática a cada 10s
         </p>
       )}
 
@@ -546,16 +555,16 @@ export default function MotoristaEntregas() {
                     <p className="text-xs text-slate-400 mb-1">Já enviados:</p>
                     <div className="flex gap-2 flex-wrap">
                       {selected.canhoto_photo && (
-                        <a href={`/uploads/${selected.canhoto_photo}`} target="_blank" rel="noopener noreferrer"
-                          className="block w-14 h-14 rounded-lg overflow-hidden border border-slate-200">
-                          <img src={`/uploads/${selected.canhoto_photo}`} alt="canhoto" className="w-full h-full object-cover" />
-                        </a>
+                        <button type="button" onClick={() => setLightboxUrl(photoSrc(selected.canhoto_photo))}
+                          className="block w-14 h-14 rounded-lg overflow-hidden border border-slate-200 hover:ring-2 hover:ring-brand-400 transition-all">
+                          <img src={photoSrc(selected.canhoto_photo)} alt="canhoto" className="w-full h-full object-cover" />
+                        </button>
                       )}
                       {selected.canhoto_photos?.map((p, i) => (
-                        <a key={i} href={`/uploads/${p.filename}`} target="_blank" rel="noopener noreferrer"
-                          className="block w-14 h-14 rounded-lg overflow-hidden border border-slate-200">
-                          <img src={`/uploads/${p.filename}`} alt={`canhoto ${i+1}`} className="w-full h-full object-cover" />
-                        </a>
+                        <button key={i} type="button" onClick={() => setLightboxUrl(photoSrc(p.filename))}
+                          className="block w-14 h-14 rounded-lg overflow-hidden border border-slate-200 hover:ring-2 hover:ring-brand-400 transition-all">
+                          <img src={photoSrc(p.filename)} alt={`canhoto ${i+1}`} className="w-full h-full object-cover" />
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -616,6 +625,26 @@ export default function MotoristaEntregas() {
                 ) : (
                   <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-500 text-center">Nenhum tubo recolhido</div>
                 )}
+                {/* Foto do canhoto / comprovante */}
+                {(selected.canhoto_photo || selected.delivery_proof_url || selected.canhoto_photos?.length > 0) && (
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs font-bold text-slate-500 uppercase mb-2">Comprovante</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {[selected.canhoto_photo, selected.delivery_proof_url].filter(Boolean).map((url, i) => (
+                        <button key={i} type="button" onClick={() => setLightboxUrl(photoSrc(url))}
+                          className="w-16 h-16 rounded-lg overflow-hidden border-2 border-slate-200 hover:border-brand-400 transition-all">
+                          <img src={photoSrc(url)} alt="comprovante" className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                      {selected.canhoto_photos?.map((p, i) => (
+                        <button key={`cp${i}`} type="button" onClick={() => setLightboxUrl(photoSrc(p.filename))}
+                          className="w-16 h-16 rounded-lg overflow-hidden border-2 border-slate-200 hover:border-brand-400 transition-all">
+                          <img src={photoSrc(p.filename)} alt={`canhoto ${i+1}`} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {selected.observations && (
                   <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 italic">"{selected.observations}"</div>
                 )}
@@ -624,6 +653,25 @@ export default function MotoristaEntregas() {
           </div>
         )}
       </Modal>
+
+      {/* ── Lightbox ──────────────────────────────────────────────────────────── */}
+      {lightboxUrl && (
+        <div
+          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+          style={{ touchAction: 'none' }}>
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 text-white text-3xl font-bold leading-none">
+            ✕
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="Foto"
+            onClick={e => e.stopPropagation()}
+            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl" />
+        </div>
+      )}
 
       {/* ── Modal: Não consegui entregar ──────────────────────────────────── */}
       <Modal open={!!failModal} onClose={() => setFailModal(null)} title="Registrar Tentativa Falha">

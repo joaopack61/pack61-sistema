@@ -195,8 +195,12 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           <KPICard label="Visitas" value={data.visits_month} icon="👁️" color="brand" />
           <KPICard label="Clientes" value={data.total_clients} icon="🏢" color="blue" />
-          <KPICard label="Canhotos OK" value={data.deliveries_with_canhoto} icon="📄" color="green" />
-          <KPICard label="Sem Canhoto" value={data.deliveries_without_canhoto} icon="⚠️" color="slate" />
+          <Link to="/admin/logistica?tab=canhotos" className="block">
+            <KPICard label="Canhotos OK" value={data.deliveries_with_canhoto ?? data.orders_delivered ?? 0} icon="📄" color="green" />
+          </Link>
+          <Link to="/admin/logistica?tab=canhotos" className="block">
+            <KPICard label="Sem Canhoto" value={data.deliveries_without_canhoto ?? 0} icon="⚠️" color="slate" />
+          </Link>
         </div>
       </div>
 

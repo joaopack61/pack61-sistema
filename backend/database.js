@@ -8,11 +8,12 @@ let pool;
 
 function getPool() {
   if (!pool) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL não definida. Configure a variável de ambiente no Railway.');
+    }
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('railway')
-        ? { rejectUnauthorized: false }
-        : false,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     });
     pool.on('error', (err) => {
       console.error('[Pack61] Erro no pool do PostgreSQL:', err.message);
