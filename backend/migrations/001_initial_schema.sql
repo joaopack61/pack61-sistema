@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Tabela de schema migrations para controle de versão
 CREATE TABLE IF NOT EXISTS schema_migrations (
-  version VARCHAR(20) PRIMARY KEY,
+  version VARCHAR(100) PRIMARY KEY,
   applied_at TIMESTAMPTZ DEFAULT now()
 );
 
