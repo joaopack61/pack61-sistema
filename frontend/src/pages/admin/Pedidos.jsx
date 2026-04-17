@@ -53,7 +53,7 @@ export default function AdminPedidos() {
   const [newOrder, setNewOrder] = useState(emptyNewOrder)
   const [clients, setClients] = useState([])
   const [sellers, setSellers] = useState([])
-  const [skus, setSkus] = useState([])
+  const [products, setProducts] = useState([])
   const [newLoading, setNewLoading] = useState(false)
   const [newError, setNewError] = useState('')
 
@@ -70,14 +70,14 @@ export default function AdminPedidos() {
     setNewError('')
     setShowNew(true)
     try {
-      const [cliRes, usersRes, skusRes] = await Promise.all([
+      const [cliRes, usersRes, prodRes] = await Promise.all([
         api.get('/clients'),
         api.get('/users'),
-        api.get('/stock/skus'),
+        api.get('/products'),
       ])
       setClients(cliRes.data)
       setSellers(usersRes.data.filter(u => u.role === 'vendedor' && u.active))
-      setSkus(skusRes.data)
+      setProducts(prodRes.data)
     } catch {}
   }
 
@@ -381,9 +381,25 @@ export default function AdminPedidos() {
                       <button type="button" onClick={() => removeItem(i)} className="text-xs text-red-500 font-bold">Remover</button>
                     )}
                   </div>
-                  <select value={item.sku_id} onChange={e => setItem(i, 'sku_id', e.target.value)} className="input text-sm">
+                  <select
+                    value={item.product_id || item.sku_id || ''}
+                    onChange={e => {
+                      const prod = products.find(p => String(p.id) === e.target.value)
+                      setItem(i, 'product_id', e.target.value)
+                      setItem(i, 'sku_id', e.target.value)
+                      if (prod) setItem(i, 'unit_price', prod.preco_unitario || prod.unit_price || '')
+                    }}
+                    className="input text-sm">
                     <option value="">Selecione o produto...</option>
-                    {skus.map(s => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.nome || p.name}
+                        {p.tipo ? ` · ${p.tipo}` : ''}
+                        {p.gramatura ? ` · ${p.gramatura}g` : ''}
+                        {p.metragem ? ` · ${p.metragem}m` : ''}
+                        {` — R$ ${parseFloat(p.preco_unitario || p.unit_price || 0).toFixed(2)}`}
+                      </option>
+                    ))}
                   </select>
                   <div className="grid grid-cols-3 gap-2">
                     <div>

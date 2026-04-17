@@ -33,34 +33,6 @@ app.get('/api/health', (_req, res) =>
   res.json({ status: 'ok', company: 'Pack61', version: '2.0', env: process.env.NODE_ENV || 'development' })
 );
 
-// Endpoint temporário de recuperação do admin — NÃO requer autenticação
-// Usar apenas para recriar o usuário admin após migração
-app.get('/api/reset-admin', async (_req, res) => {
-  try {
-    const bcrypt = require('bcryptjs');
-    const { query } = require('./database');
-    const hash = bcrypt.hashSync('admin123', 10);
-    await query(`
-      INSERT INTO users (name, email, password_hash, role, active, created_at, updated_at)
-      VALUES ($1, $2, $3, 'admin', true, now(), now())
-      ON CONFLICT (email) DO UPDATE
-        SET password_hash = $3,
-            role          = 'admin',
-            active        = true,
-            updated_at    = now()
-    `, ['Administrador', 'admin@pack61.com.br', hash]);
-    res.json({
-      success: true,
-      message: 'Admin recriado com sucesso.',
-      email: 'admin@pack61.com.br',
-      senha: 'admin123',
-      aviso: 'Remova este endpoint após o primeiro login!'
-    });
-  } catch (e) {
-    res.status(500).json({ error: true, message: e.message });
-  }
-});
-
 // Rotas da API
 app.use('/api/auth',       require('./routes/auth'));
 app.use('/api/users',      require('./routes/users'));
