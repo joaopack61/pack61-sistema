@@ -91,42 +91,77 @@ router.get('/:id', async (req, res) => {
 
 // POST /orders
 router.post('/', authorize('admin','vendedor'), async (req, res) => {
+  console.log('[POST /orders] body recebido:', JSON.stringify(req.body, null, 2));
   try {
     const { client_id, items, payment_terms, condicao_pagamento, delivery_date, notes } = req.body;
-    if (!client_id || !items?.length) return res.status(400).json({ error: true, message: 'Cliente e itens são obrigatórios' });
+    if (!client_id || !items?.length) {
+      return res.status(400).json({ error: true, message: 'Cliente e itens são obrigatórios' });
+    }
 
     // Verificar bloqueio do cliente
     const clientRes = await query('SELECT status, bloqueio_motivo FROM clients WHERE id=$1', [client_id]);
     const client = clientRes.rows[0];
-    if (client?.status === 'BLOQUEADO') {
+    if (!client) return res.status(400).json({ error: true, message: 'Cliente não encontrado' });
+    if (client.status === 'BLOQUEADO') {
       return res.status(422).json({ error: true, message: `Cliente bloqueado: ${client.bloqueio_motivo || 'contate o administrador'}`, code: 'CLIENT_BLOCKED' });
     }
 
     const seller_id = req.user.role === 'vendedor' ? req.user.id : (req.body.seller_id || req.user.id);
-    const total = items.reduce((a, i) => a + (parseFloat(i.quantity||i.quantidade||0) * parseFloat(i.unit_price||i.preco_unitario||0)), 0);
-    const origem = req.user.role === 'admin' ? 'ADMIN' : 'VENDEDOR';
+    const condicao  = condicao_pagamento || payment_terms || 'A_VISTA';
+    const origem    = req.user.role === 'admin' ? 'ADMIN' : 'VENDEDOR';
+    const total     = items.reduce((acc, it) => {
+      const qty   = parseFloat(it.quantity   || it.quantidade   || 0);
+      const price = parseFloat(it.unit_price || it.preco_unitario || 0);
+      return acc + qty * price;
+    }, 0);
+
+    console.log('[POST /orders] inserindo pedido — client_id:', client_id, 'seller_id:', seller_id, 'total:', total);
 
     const orderRes = await query(
-      `INSERT INTO orders (client_id, seller_id, origem, status, condicao_pagamento, payment_terms, delivery_date, notes, total_value, valor_total, delivery_status, created_at, updated_at)
-       VALUES ($1,$2,$3,'pendente',$4,$5,$6,$7,$8,$8,'AGUARDANDO',now(),now()) RETURNING id`,
-      [client_id, seller_id, origem, condicao_pagamento||payment_terms||'A_VISTA', payment_terms||null, delivery_date||null, notes||null, total]
+      `INSERT INTO orders
+         (client_id, seller_id, origem, status, condicao_pagamento, payment_terms, delivery_date, notes, total_value, valor_total, delivery_status, created_at, updated_at)
+       VALUES ($1,$2,$3,'pendente',$4,$4,$5,$6,$7,$7,'AGUARDANDO',now(),now())
+       RETURNING id`,
+      [client_id, seller_id, origem, condicao, delivery_date || null, notes || null, total]
     );
     const orderId = orderRes.rows[0].id;
+    console.log('[POST /orders] pedido criado id:', orderId);
 
-    for (const item of items) {
-      const qty = parseFloat(item.quantity||item.quantidade||0);
-      const price = parseFloat(item.unit_price||item.preco_unitario||0);
+    for (let idx = 0; idx < items.length; idx++) {
+      const it    = items[idx];
+      const qty   = parseFloat(it.quantity   || it.quantidade   || 0);
+      const price = parseFloat(it.unit_price || it.preco_unitario || 0);
+      // product_id referencia tabela products; sku_id referencia tabela skus (legado)
+      // Nunca enviar o mesmo id para as duas FKs — são tabelas diferentes
+      const productId = it.product_id ? parseInt(it.product_id) : null;
+      const skuId     = (!productId && it.sku_id) ? parseInt(it.sku_id) : null;
+
+      console.log(`[POST /orders] item ${idx + 1}: product_id=${productId}, sku_id=${skuId}, qty=${qty}, price=${price}`);
+
       await query(
-        'INSERT INTO order_items (order_id, product_id, sku_id, quantity, quantidade, unit_price, preco_unitario, total_price, subtotal) VALUES ($1,$2,$3,$4,$4,$5,$5,$6,$6)',
-        [orderId, item.product_id||null, item.sku_id||null, qty, price, qty*price]
+        `INSERT INTO order_items
+           (order_id, product_id, sku_id, quantity, unit_price, total_price)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [orderId, productId, skuId, qty, price, qty * price]
       );
     }
 
-    await query("INSERT INTO production_orders (order_id, status) VALUES ($1,'pendente')", [orderId]);
+    // Criar ordem de produção (não fatal se falhar)
+    try {
+      await query("INSERT INTO production_orders (order_id, status) VALUES ($1,'pendente')", [orderId]);
+    } catch (prodErr) {
+      console.warn('[POST /orders] aviso: não foi possível criar production_order:', prodErr.message);
+    }
+
     await orderService.logStatusHistory(orderId, null, 'pendente', 'status', req.user.id, 'Pedido criado');
     await auditLog(req.user.id, 'order_created', 'orders', orderId, null, { client_id, total });
+
+    console.log('[POST /orders] sucesso, id:', orderId);
     res.status(201).json({ id: orderId });
-  } catch (e) { res.status(500).json({ error: true, message: e.message }); }
+  } catch (e) {
+    console.error('[POST /orders] ERRO:', e.message, e.stack);
+    res.status(500).json({ error: true, message: e.message, detail: e.detail || null });
+  }
 });
 
 // PUT /orders/:id/status
