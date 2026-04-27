@@ -120,9 +120,9 @@ router.post('/', authorize('admin','vendedor'), async (req, res) => {
     const orderRes = await query(
       `INSERT INTO orders
          (client_id, seller_id, origem, status, condicao_pagamento, payment_terms, delivery_date, notes, total_value, valor_total, delivery_status, created_at, updated_at)
-       VALUES ($1,$2,$3,'pendente',$4,$4,$5,$6,$7,$7,'AGUARDANDO',now(),now())
+       VALUES ($1,$2,$3,'pendente',$4,$5,$6,$7,$8,$8,'AGUARDANDO',now(),now())
        RETURNING id`,
-      [client_id, seller_id, origem, condicao, delivery_date || null, notes || null, total]
+      [client_id, seller_id, origem, condicao, condicao, delivery_date || null, notes || null, total]
     );
     const orderId = orderRes.rows[0].id;
     console.log('[POST /orders] pedido criado id:', orderId);
