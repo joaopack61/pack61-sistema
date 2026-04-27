@@ -6,6 +6,7 @@ const NAV = {
     { to: '/admin', label: 'Dashboard', icon: '📊', end: true },
     { to: '/admin/pedidos', label: 'Pedidos', icon: '📋' },
     { to: '/admin/logistica', label: 'Logística', icon: '🚚' },
+    { to: '/admin/vendedores', label: 'Vendedores', icon: '🧑‍💼' },
     { to: '/admin/clientes', label: 'Clientes', icon: '🏢' },
     { to: '/admin/financeiro', label: 'Financeiro', icon: '💰' },
     { to: '/admin/produtos', label: 'Produtos', icon: '📦' },

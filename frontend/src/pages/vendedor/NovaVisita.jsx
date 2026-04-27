@@ -156,11 +156,17 @@ export default function NovaVisita() {
         monthly_volume: form.monthly_volume,
         products_interest: form.products_interest,
         observations: form.observations,
+        // novos campos
+        classificacao_cliente: form.classificacao_cliente || 'B',
+        contato_atendeu: form.contato_atendeu,
+        telefone_contato: form.telefone_contato,
+        gerou_orcamento: form.gerou_orcamento ? 1 : 0,
+        valor_orcamento: form.gerou_orcamento ? form.valor_orcamento : '',
       }
       Object.entries(fields).forEach(([k, v]) => {
         if (v !== '' && v !== null && v !== undefined) visitData.append(k, v)
       })
-      if (form.photo) visitData.append('photo', form.photo)
+      if (form.photo) visitData.append('foto_fachada', form.photo)
 
       const vr = await api.post('/visits', visitData, { headers: { 'Content-Type': 'multipart/form-data' } })
 
@@ -354,6 +360,61 @@ export default function NovaVisita() {
           <div className="card p-5 space-y-4">
             <h3 className="font-bold text-slate-700 text-sm">Informações Comerciais</h3>
 
+            {/* Classificação do cliente */}
+            <div>
+              <label className="label">Classificação do cliente</label>
+              <div className="grid grid-cols-3 gap-2">
+                {['A','B','C'].map(c => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => F('classificacao_cliente', c)}
+                    className={`py-3 rounded-xl font-black text-sm border-2 transition-all ${form.classificacao_cliente === c ? 'border-brand-500 bg-brand-500 text-white' : 'border-slate-200 bg-white text-slate-500'}`}
+                  >
+                    {c === 'A' ? '⭐ A' : c === 'B' ? '🔵 B' : '⚪ C'}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 mt-1">A = alto potencial · B = médio · C = baixo</p>
+            </div>
+
+            {/* Contato que atendeu */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Contato que atendeu</label>
+                <input value={form.contato_atendeu || ''} onChange={e => F('contato_atendeu', e.target.value)} className="input" placeholder="Nome" />
+              </div>
+              <div>
+                <label className="label">Telefone do contato</label>
+                <input type="tel" value={form.telefone_contato || ''} onChange={e => F('telefone_contato', e.target.value)} className="input" placeholder="(11) 99999-9999" />
+              </div>
+            </div>
+
+            {/* Gerou orçamento */}
+            <div>
+              <label className="label">Gerou orçamento?</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[{v: true, l:'Sim ✅'},{v: false, l:'Não ❌'}].map(opt => (
+                  <button
+                    key={String(opt.v)}
+                    type="button"
+                    onClick={() => F('gerou_orcamento', opt.v)}
+                    className={`py-2.5 rounded-xl font-bold text-sm border-2 transition-all ${form.gerou_orcamento === opt.v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-200 bg-white text-slate-500'}`}
+                  >
+                    {opt.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Valor do orçamento — só aparece se sim */}
+            {form.gerou_orcamento === true && (
+              <div>
+                <label className="label">Valor estimado do orçamento (R$)</label>
+                <input type="number" value={form.valor_orcamento || ''} onChange={e => F('valor_orcamento', e.target.value)} className="input" step="0.01" min="0" placeholder="0,00" />
+              </div>
+            )}
+
             <div>
               <label className="label">Previsão próxima compra</label>
               <input type="date" value={form.next_purchase_date} onChange={e => F('next_purchase_date', e.target.value)} className="input" min={today} />
@@ -405,7 +466,7 @@ export default function NovaVisita() {
             </div>
 
             <div>
-              <label className="label">Foto (local / cartão de visita) — opcional</label>
+              <label className="label">Foto da fachada — opcional</label>
               <input type="file" accept="image/*" capture="environment" onChange={e => F('photo', e.target.files[0])} className="input text-sm" />
             </div>
           </div>

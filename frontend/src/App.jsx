@@ -8,6 +8,7 @@ import AdminClients from './pages/admin/Clients'
 import AdminPedidos from './pages/admin/Pedidos'
 import AdminLogistica from './pages/admin/Logistica'
 import AdminReports from './pages/admin/Reports'
+import AdminVendedores from './pages/admin/Vendedores'
 import Financeiro from './pages/admin/Financeiro'
 import Produtos from './pages/admin/Produtos'
 import VendedorDashboard from './pages/vendedor/Dashboard'
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="logistica" element={<AdminLogistica />} />
             <Route path="clientes" element={<AdminClients />} />
             <Route path="relatorios" element={<AdminReports />} />
+            <Route path="vendedores" element={<AdminVendedores />} />
             <Route path="usuarios" element={<AdminUsers />} />
             <Route path="financeiro" element={<Financeiro />} />
             <Route path="produtos" element={<Produtos />} />

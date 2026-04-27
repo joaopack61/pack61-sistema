@@ -46,6 +46,7 @@ app.use('/api/deliveries', require('./routes/deliveries'));
 app.use('/api/financial',  require('./routes/financial'));
 app.use('/api/dashboard',  require('./routes/dashboard'));
 app.use('/api/reports',    require('./routes/reports'));
+app.use('/api/sellers',    require('./routes/sellers'));
 
 // Frontend
 const frontendDist = path.join(__dirname, '../frontend/dist');
