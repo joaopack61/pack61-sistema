@@ -31,13 +31,26 @@ function FlowStepper({ current }) {
   )
 }
 
+const PAYMENT_TERMS_OPTIONS = [
+  { value: 'A_VISTA', label: 'À Vista' },
+  { value: '7', label: '7 dias' },
+  { value: '14', label: '14 dias' },
+  { value: '7/14', label: '7/14 dias' },
+  { value: '28', label: '28 dias' },
+  { value: '30', label: '30 dias' },
+  { value: '30/60', label: '30/60 dias' },
+  { value: '30/60/90', label: '30/60/90 dias' },
+  { value: '45', label: '45 dias' },
+  { value: '60', label: '60 dias' },
+]
+
 const emptyNewOrder = {
   client_id: '',
   seller_id: '',
   delivery_date: '',
-  payment_terms: '',
+  payment_terms: 'A_VISTA',
   notes: '',
-  items: [{ sku_id: '', quantity: 1, unit_price: '' }],
+  items: [{ product_id: '', quantity: 1, unit_price: '' }],
 }
 
 export default function AdminPedidos() {
@@ -112,7 +125,7 @@ export default function AdminPedidos() {
       return { ...prev, items }
     })
   }
-  const addItem = () => setNewOrder(prev => ({ ...prev, items: [...prev.items, { sku_id: '', quantity: 1, unit_price: '' }] }))
+  const addItem = () => setNewOrder(prev => ({ ...prev, items: [...prev.items, { product_id: '', quantity: 1, unit_price: '' }] }))
   const removeItem = (i) => setNewOrder(prev => ({ ...prev, items: prev.items.filter((_, idx) => idx !== i) }))
 
   const orderTotal = newOrder.items.reduce((acc, it) => {
@@ -123,28 +136,31 @@ export default function AdminPedidos() {
 
   const handleCreateOrder = async () => {
     if (!newOrder.client_id) { setNewError('Selecione um cliente'); return }
-    if (!newOrder.items.length || !newOrder.items[0].sku_id) { setNewError('Adicione pelo menos 1 item'); return }
+    const validItems = newOrder.items.filter(it => it.product_id)
+    if (!validItems.length) { setNewError('Adicione pelo menos 1 item com produto selecionado'); return }
     setNewLoading(true); setNewError('')
     try {
       const payload = {
         client_id: parseInt(newOrder.client_id),
         seller_id: newOrder.seller_id ? parseInt(newOrder.seller_id) : undefined,
         delivery_date: newOrder.delivery_date || undefined,
-        payment_terms: newOrder.payment_terms || undefined,
+        condicao_pagamento: newOrder.payment_terms || 'A_VISTA',
+        payment_terms: newOrder.payment_terms || 'A_VISTA',
         notes: newOrder.notes || undefined,
-        items: newOrder.items
-          .filter(it => it.sku_id)
-          .map(it => ({
-            sku_id: parseInt(it.sku_id),
-            quantity: parseFloat(it.quantity) || 1,
-            unit_price: parseFloat(it.unit_price) || 0,
-          })),
+        items: validItems.map(it => ({
+          product_id: parseInt(it.product_id),
+          quantidade: parseFloat(it.quantity) || 1,
+          quantity: parseFloat(it.quantity) || 1,
+          preco_unitario: parseFloat(it.unit_price) || 0,
+          unit_price: parseFloat(it.unit_price) || 0,
+        })),
       }
       await api.post('/orders', payload)
       setShowNew(false)
       await load(filter)
     } catch (e) {
-      setNewError(e.response?.data?.error || 'Erro ao criar pedido')
+      const msg = e.response?.data?.message || e.response?.data?.error || 'Erro ao criar pedido'
+      setNewError(msg)
     } finally { setNewLoading(false) }
   }
 
@@ -357,7 +373,9 @@ export default function AdminPedidos() {
             </div>
             <div>
               <label className="label">Cond. pagamento</label>
-              <input type="text" value={newOrder.payment_terms} onChange={e => setNewOrder(p => ({...p, payment_terms: e.target.value}))} className="input" placeholder="Ex: 30/60 dias" />
+              <select value={newOrder.payment_terms} onChange={e => setNewOrder(p => ({...p, payment_terms: e.target.value}))} className="input">
+                {PAYMENT_TERMS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
             </div>
           </div>
 
@@ -382,11 +400,10 @@ export default function AdminPedidos() {
                     )}
                   </div>
                   <select
-                    value={item.product_id || item.sku_id || ''}
+                    value={item.product_id || ''}
                     onChange={e => {
                       const prod = products.find(p => String(p.id) === e.target.value)
                       setItem(i, 'product_id', e.target.value)
-                      setItem(i, 'sku_id', e.target.value)
                       if (prod) setItem(i, 'unit_price', prod.preco_unitario || prod.unit_price || '')
                     }}
                     className="input text-sm">
