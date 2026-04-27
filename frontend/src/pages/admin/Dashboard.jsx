@@ -4,20 +4,20 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import api from '../../api'
 import KPICard from '../../components/KPICard'
 import StatusBadge from '../../components/StatusBadge'
+import Modal from '../../components/Modal'
 
 const COLORS = ['#f97316', '#3b82f6', '#10b981', '#a855f7', '#ef4444', '#f59e0b']
 
 const STATUS_PIPELINE = [
-  { key: 'pendente', label: 'Pendentes', color: 'bg-yellow-400', link: '/admin/pedidos' },
-  { key: 'em_producao', label: 'Em Produção', color: 'bg-blue-400', link: '/admin/pedidos' },
-  { key: 'pronto_expedicao', label: 'P/ Expedição', color: 'bg-purple-400', link: '/admin/logistica' },
-  { key: 'entregue', label: 'Entregues', color: 'bg-green-400', link: '/admin/logistica' },
+  { key: 'pendente',         label: 'Pendentes',     color: 'bg-yellow-400' },
+  { key: 'em_producao',      label: 'Em Produção',   color: 'bg-blue-400'   },
+  { key: 'pronto_expedicao', label: 'P/ Expedição',  color: 'bg-purple-400' },
+  { key: 'entregue',         label: 'Entregues',     color: 'bg-green-400'  },
 ]
 
 function fmt(value) {
   return Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
-
 function fmtR(value) {
   return `R$ ${fmt(value)}`
 }
@@ -27,6 +27,15 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [pipeline, setPipeline] = useState([])
   const [deliveryKPIs, setDeliveryKPIs] = useState({ AGUARDANDO:0, DISPONIVEL:0, EM_ROTA:0, ENTREGUE:0, avgMinutes:null, highAttempts:0 })
+  const [allOrders, setAllOrders] = useState([])
+
+  // Modal pipeline
+  const [pipelineModal, setPipelineModal] = useState(null) // { label, key, orders[] }
+
+  const openPipeline = (s) => {
+    const filtered = allOrders.filter(o => o.status === s.key)
+    setPipelineModal({ label: s.label, key: s.key, orders: filtered })
+  }
 
   useEffect(() => {
     Promise.all([
@@ -34,11 +43,11 @@ export default function AdminDashboard() {
       api.get('/orders'),
     ]).then(([dash, orders]) => {
       setData(dash.data)
+      setAllOrders(orders.data)
       const counts = {}
       orders.data.forEach(o => { counts[o.status] = (counts[o.status] || 0) + 1 })
       setPipeline(STATUS_PIPELINE.map(s => ({ ...s, count: counts[s.key] || 0 })))
 
-      // KPIs de logística
       const ds = { AGUARDANDO:0, DISPONIVEL:0, EM_ROTA:0, ENTREGUE:0 }
       let totalMin = 0, countMin = 0, highAttempts = 0
       orders.data.forEach(o => {
@@ -132,11 +141,16 @@ export default function AdminDashboard() {
         <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Pipeline de Pedidos</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           {pipeline.map(s => (
-            <Link key={s.key} to={s.link} className="card p-4 hover:shadow-md transition-shadow">
+            <button
+              key={s.key}
+              onClick={() => openPipeline(s)}
+              className="card p-4 hover:shadow-md transition-shadow text-left active:scale-95"
+            >
               <div className={`w-2 h-2 rounded-full ${s.color} mb-2`} />
               <div className="text-2xl font-black text-slate-800">{s.count}</div>
               <div className="text-xs font-semibold text-slate-500 mt-0.5">{s.label}</div>
-            </Link>
+              <div className="text-xs text-brand-500 mt-1 font-semibold">Ver lista →</div>
+            </button>
           ))}
         </div>
       </div>
@@ -356,6 +370,51 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+      {/* ── Modal Pipeline ───────────────────────────────────────── */}
+      <Modal
+        open={!!pipelineModal}
+        onClose={() => setPipelineModal(null)}
+        title={pipelineModal ? `Pedidos — ${pipelineModal.label}` : ''}
+      >
+        {pipelineModal && (
+          <div className="space-y-2">
+            {pipelineModal.orders.length === 0 && (
+              <p className="text-center text-slate-400 py-6 text-sm">Nenhum pedido neste status</p>
+            )}
+            {pipelineModal.orders.map(o => (
+              <div key={o.id} className="bg-slate-50 rounded-xl p-3 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-400">#{o.id}</span>
+                  <span className="text-sm font-black text-brand-600">
+                    R$ {Number(o.total_value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div className="font-bold text-slate-800 text-sm">{o.client_name || o.razao_social}</div>
+                {o.seller_name && (
+                  <div className="text-xs text-slate-500">Vendedor: {o.seller_name}</div>
+                )}
+                {o.delivery_date && (
+                  <div className="text-xs text-slate-500">
+                    Entrega prevista: {new Date(o.delivery_date + 'T00:00:00').toLocaleDateString('pt-BR')}
+                  </div>
+                )}
+                {o.items?.length > 0 && (
+                  <div className="text-xs text-slate-500 mt-1">
+                    {o.items.slice(0, 3).map((it, i) => (
+                      <span key={i} className="mr-2">{it.quantity}× {it.sku_name || it.product_name}</span>
+                    ))}
+                    {o.items.length > 3 && <span className="text-slate-400">+{o.items.length - 3}</span>}
+                  </div>
+                )}
+                <div className="text-xs text-slate-400">
+                  Criado em {new Date(o.created_at).toLocaleDateString('pt-BR')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+
     </div>
   )
 }
